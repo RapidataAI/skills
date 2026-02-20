@@ -1,0 +1,60 @@
+name: Sync Plugin Version with SDK
+
+on:
+  repository_dispatch:
+    types: [sdk-release]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "SDK version to sync to (leave empty to fetch from PyPI)"
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  sync-version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Determine SDK version
+        id: sdk-version
+        run: |
+          # Use version from dispatch payload, manual input, or fall back to PyPI
+          if [ -n "${{ github.event.client_payload.version }}" ]; then
+            SDK_VERSION="${{ github.event.client_payload.version }}"
+            echo "Version from SDK release dispatch: $SDK_VERSION"
+          elif [ -n "${{ inputs.version }}" ]; then
+            SDK_VERSION="${{ inputs.version }}"
+            echo "Version from manual input: $SDK_VERSION"
+          else
+            SDK_VERSION=$(curl -s https://pypi.org/pypi/rapidata/json | jq -r '.info.version')
+            echo "Version from PyPI: $SDK_VERSION"
+          fi
+          echo "version=$SDK_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Get current plugin version
+        id: plugin-version
+        run: |
+          PLUGIN_VERSION=$(jq -r '.version' plugins/rapidata-sdk-plugin/.claude-plugin/plugin.json)
+          echo "version=$PLUGIN_VERSION" >> "$GITHUB_OUTPUT"
+          echo "Current plugin version: $PLUGIN_VERSION"
+
+      - name: Update plugin version
+        if: steps.sdk-version.outputs.version != steps.plugin-version.outputs.version
+        run: |
+          jq --arg v "${{ steps.sdk-version.outputs.version }}" '.version = $v' \
+            plugins/rapidata-sdk-plugin/.claude-plugin/plugin.json > tmp.json
+          mv tmp.json plugins/rapidata-sdk-plugin/.claude-plugin/plugin.json
+          echo "Updated plugin version to ${{ steps.sdk-version.outputs.version }}"
+
+      - name: Commit and push
+        if: steps.sdk-version.outputs.version != steps.plugin-version.outputs.version
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add plugins/rapidata-sdk-plugin/.claude-plugin/plugin.json
+          git commit -m "chore: sync plugin version to SDK v${{ steps.sdk-version.outputs.version }}"
+          git push
