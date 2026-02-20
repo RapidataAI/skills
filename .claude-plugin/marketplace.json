@@ -10,7 +10,7 @@
         {
             "name": "rapidata-sdk-plugin",
             "source": "./plugins/rapidata-sdk-plugin",
-            "description": "Claude Code skill for working with the annotation SDK"
+            "description": "Teaches Claude how to use the Rapidata Python SDK for human annotation tasks"
         }
     ]
 }
