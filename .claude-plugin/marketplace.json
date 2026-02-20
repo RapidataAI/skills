@@ -1,0 +1,16 @@
+{
+    "name": "rapidata-sdk-marketplace",
+    "owner": {
+        "name": "Rapidata"
+    },
+    "metadata": {
+        "description": "Plugins for the Rapidata annotation SDK"
+    },
+    "plugins": [
+        {
+            "name": "rapidata-sdk-plugin",
+            "source": "./plugins/rapidata-sdk-plugin",
+            "description": "Claude Code skill for working with the annotation SDK"
+        }
+    ]
+}
