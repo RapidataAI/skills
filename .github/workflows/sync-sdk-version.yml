@@ -50,11 +50,124 @@ jobs:
           mv tmp.json plugins/rapidata-sdk-plugin/.claude-plugin/plugin.json
           echo "Updated plugin version to ${{ steps.sdk-version.outputs.version }}"
 
+      - name: Clone SDK and generate diff
+        id: sdk-diff
+        if: steps.sdk-version.outputs.version != steps.plugin-version.outputs.version
+        run: |
+          OLD_VERSION="${{ steps.plugin-version.outputs.version }}"
+          NEW_VERSION="${{ steps.sdk-version.outputs.version }}"
+
+          git clone --bare --filter=blob:none https://github.com/RapidataAI/rapidata-python-sdk.git /tmp/sdk-repo
+
+          # Resolve tags — handle both "v1.2.3" and "1.2.3" formats
+          resolve_tag() {
+            local ver="$1"
+            local repo="/tmp/sdk-repo"
+            if git -C "$repo" rev-parse "v${ver}" >/dev/null 2>&1; then
+              echo "v${ver}"
+            elif git -C "$repo" rev-parse "${ver}" >/dev/null 2>&1; then
+              echo "${ver}"
+            else
+              echo ""
+            fi
+          }
+
+          OLD_TAG=$(resolve_tag "$OLD_VERSION")
+          NEW_TAG=$(resolve_tag "$NEW_VERSION")
+
+          if [ -z "$OLD_TAG" ] || [ -z "$NEW_TAG" ]; then
+            echo "::warning::Could not resolve SDK tags (old='$OLD_TAG' new='$NEW_TAG'). Skipping Claude update."
+            echo "skip_claude=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "Generating diff between $OLD_TAG and $NEW_TAG"
+          DIFF=$(git -C /tmp/sdk-repo diff "$OLD_TAG" "$NEW_TAG" 2>/dev/null || true)
+
+          if [ -z "$DIFF" ]; then
+            echo "::warning::SDK diff is empty between $OLD_TAG and $NEW_TAG. Skipping Claude update."
+            echo "skip_claude=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Truncate diff at 100KB
+          echo "$DIFF" | head -c 102400 > /tmp/sdk-diff.txt
+          DIFF_SIZE=$(echo "$DIFF" | wc -c)
+          if [ "$DIFF_SIZE" -gt 102400 ]; then
+            echo -e "\n\n[DIFF TRUNCATED — original was ${DIFF_SIZE} bytes]" >> /tmp/sdk-diff.txt
+          fi
+
+          echo "skip_claude=false" >> "$GITHUB_OUTPUT"
+          echo "SDK diff generated (${DIFF_SIZE} bytes)"
+
+      - name: Update skill docs with Claude
+        if: >-
+          steps.sdk-version.outputs.version != steps.plugin-version.outputs.version
+          && steps.sdk-diff.outputs.skip_claude != 'true'
+        continue-on-error: true
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          npm install -g @anthropic-ai/claude-code
+
+          SKILL_DIR="plugins/rapidata-sdk-plugin/skills/rapidata"
+
+          # Build prompt file
+          cat > /tmp/claude-prompt.txt << 'PROMPT_HEADER'
+          You are updating skill documentation for a Claude Code plugin.
+          Below are three skill files (SKILL.md, reference.md, examples.md) followed by a diff of the Rapidata Python SDK between the old and new version.
+
+          RULES:
+          - Only update what the diff evidences. Do NOT invent features or capabilities not shown in the diff.
+          - Preserve the existing style, structure, and formatting of each file.
+          - Only modify files that actually need changes based on the diff. If a file needs no changes, leave it exactly as-is.
+          - Write updated files directly to disk using the Write tool. Do NOT create new files.
+          - Do NOT add or remove sections unless the diff clearly warrants it.
+          - Focus on: new/changed API methods, parameter changes, renamed classes, removed features, new examples if clearly demonstrated in the diff.
+
+          PROMPT_HEADER
+
+          echo "=== SKILL.md ===" >> /tmp/claude-prompt.txt
+          cat "$SKILL_DIR/SKILL.md" >> /tmp/claude-prompt.txt
+          echo -e "\n=== reference.md ===" >> /tmp/claude-prompt.txt
+          cat "$SKILL_DIR/reference.md" >> /tmp/claude-prompt.txt
+          echo -e "\n=== examples.md ===" >> /tmp/claude-prompt.txt
+          cat "$SKILL_DIR/examples.md" >> /tmp/claude-prompt.txt
+          echo -e "\n=== SDK DIFF (old → new version) ===" >> /tmp/claude-prompt.txt
+          cat /tmp/sdk-diff.txt >> /tmp/claude-prompt.txt
+
+          cat /tmp/claude-prompt.txt | claude -p \
+            --dangerously-skip-permissions \
+            --max-turns 3
+
+          # Revert any files Claude touched outside the allowed set
+          ALLOWED_FILES=(
+            "$SKILL_DIR/SKILL.md"
+            "$SKILL_DIR/reference.md"
+            "$SKILL_DIR/examples.md"
+          )
+          for changed_file in $(git diff --name-only); do
+            is_allowed=false
+            for allowed in "${ALLOWED_FILES[@]}"; do
+              if [ "$changed_file" = "$allowed" ]; then
+                is_allowed=true
+                break
+              fi
+            done
+            if [ "$is_allowed" = false ]; then
+              echo "Reverting unauthorized change: $changed_file"
+              git checkout -- "$changed_file"
+            fi
+          done
+
       - name: Commit and push
         if: steps.sdk-version.outputs.version != steps.plugin-version.outputs.version
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
           git add plugins/rapidata-sdk-plugin/.claude-plugin/plugin.json
+          git add plugins/rapidata-sdk-plugin/skills/rapidata/SKILL.md
+          git add plugins/rapidata-sdk-plugin/skills/rapidata/reference.md
+          git add plugins/rapidata-sdk-plugin/skills/rapidata/examples.md
           git commit -m "chore: sync plugin version to SDK v${{ steps.sdk-version.outputs.version }}"
           git push
