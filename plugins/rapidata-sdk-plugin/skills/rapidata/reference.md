@@ -230,12 +230,33 @@ leaderboard = benchmark.create_leaderboard(
     show_prompt=False,
 )
 
-# Evaluate a model
+# Evaluate a model (creates participant, uploads media, and submits in one step)
 benchmark.evaluate_model(
     name="MyModel_v2",
     media=["mountain.png", "city.png"],
     prompts=["A serene mountain landscape", "A futuristic city"],
 )
+
+# Or add a model without submitting (for more control)
+participant = benchmark.add_model(
+    name="MyModel_v3",
+    media=["mountain_v3.png", "city_v3.png"],
+    prompts=["A serene mountain landscape", "A futuristic city"],
+)
+
+# Upload additional media to the same participant
+participant.upload_media(
+    assets=["mountain_v3_extra.png"],
+    identifiers=["A serene mountain landscape"],
+)
+
+# Submit individually or all at once
+participant.run()       # Submit one participant
+benchmark.run()         # Submit all unsubmitted participants
+
+# List participants and their status
+for p in benchmark.participants:
+    print(p.name, p.status)
 
 # Get results
 standings = leaderboard.get_standings()  # Pandas DataFrame

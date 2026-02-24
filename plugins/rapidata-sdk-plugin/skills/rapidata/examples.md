@@ -230,7 +230,7 @@ leaderboard = benchmark.create_leaderboard(
     show_prompt=True,
 )
 
-# Evaluate models
+# Evaluate models (creates, uploads, and submits in one step)
 benchmark.evaluate_model(
     name="DALL-E 3",
     media=["dalle_mountain.png", "dalle_city.png", "dalle_wizard.png"],
@@ -246,6 +246,36 @@ benchmark.evaluate_model(
 # Get leaderboard standings
 standings = leaderboard.get_standings()
 print(standings)
+```
+
+## Model Benchmark — Staged Submission
+
+```python
+from rapidata import RapidataClient
+
+client = RapidataClient()
+
+benchmark = client.mri.get_benchmark_by_id("benchmark_id")
+
+# Add models without submitting
+benchmark.add_model(
+    name="DALL-E 3",
+    media=["dalle_mountain.png", "dalle_city.png", "dalle_wizard.png"],
+    prompts=["A serene mountain landscape", "A futuristic city at night", "A wise wizard portrait"],
+)
+
+benchmark.add_model(
+    name="Midjourney v6",
+    media=["mj_mountain.png", "mj_city.png", "mj_wizard.png"],
+    prompts=["A serene mountain landscape", "A futuristic city at night", "A wise wizard portrait"],
+)
+
+# Inspect participants before submitting
+for p in benchmark.participants:
+    print(p.name, p.status)
+
+# Submit all at once
+benchmark.run()
 ```
 
 ## Handling Failed Uploads
