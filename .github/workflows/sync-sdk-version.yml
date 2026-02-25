@@ -169,5 +169,9 @@ jobs:
           git add plugins/rapidata-sdk-plugin/skills/rapidata/SKILL.md
           git add plugins/rapidata-sdk-plugin/skills/rapidata/reference.md
           git add plugins/rapidata-sdk-plugin/skills/rapidata/examples.md
-          git commit -m "chore: sync plugin version to SDK v${{ steps.sdk-version.outputs.version }}"
-          git push
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "chore: sync plugin version to SDK v${{ steps.sdk-version.outputs.version }}"
+            git push
+          fi
