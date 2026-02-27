@@ -82,7 +82,7 @@ jobs:
           fi
 
           echo "Generating diff between $OLD_TAG and $NEW_TAG"
-          DIFF=$(git -C /tmp/sdk-repo diff "$OLD_TAG" "$NEW_TAG" 2>/dev/null || true)
+          DIFF=$(git -C /tmp/sdk-repo diff "$OLD_TAG" "$NEW_TAG" -- ':!src/rapidata/api_client' 2>/dev/null || true)
 
           if [ -z "$DIFF" ]; then
             echo "::warning::SDK diff is empty between $OLD_TAG and $NEW_TAG. Skipping Claude update."
