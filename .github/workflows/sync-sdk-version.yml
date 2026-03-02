@@ -48,6 +48,7 @@ jobs:
           jq --arg v "${{ steps.sdk-version.outputs.version }}" '.version = $v' \
             plugins/rapidata-sdk-plugin/.claude-plugin/plugin.json > tmp.json
           mv tmp.json plugins/rapidata-sdk-plugin/.claude-plugin/plugin.json
+          git add plugins/rapidata-sdk-plugin/.claude-plugin/plugin.json
           echo "Updated plugin version to ${{ steps.sdk-version.outputs.version }}"
 
       - name: Clone SDK and generate diff
