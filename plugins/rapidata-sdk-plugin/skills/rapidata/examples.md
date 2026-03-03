@@ -91,30 +91,28 @@ from rapidata import RapidataClient
 
 client = RapidataClient()
 
-# Create and train audience (need min 3 examples)
+# Create and train audience with diverse examples
 audience = client.audience.create_audience(name="Image Quality Experts")
 
-audience.add_compare_example(
-    instruction="Which image follows the prompt better?",
-    datapoint=["good_example.jpg", "bad_example.jpg"],
-    truth="good_example.jpg",
-    context="A cat on a chair",
-    data_type="media",
-)
-audience.add_compare_example(
-    instruction="Which image follows the prompt better?",
-    datapoint=["clear.jpg", "blurry.jpg"],
-    truth="clear.jpg",
-    context="A sunset over mountains",
-    data_type="media",
-)
-audience.add_compare_example(
-    instruction="Which image follows the prompt better?",
-    datapoint=["accurate.jpg", "inaccurate.jpg"],
-    truth="accurate.jpg",
-    context="A red sports car",
-    data_type="media",
-)
+DATAPOINTS = [
+    ["good_example.jpg", "bad_example.jpg"],
+    ["clear.jpg", "blurry.jpg"],
+    ["accurate.jpg", "inaccurate.jpg"],
+]
+PROMPTS = [
+    "A cat on a chair",
+    "A sunset over mountains",
+    "A red sports car",
+]
+
+for prompt, datapoint in zip(PROMPTS, DATAPOINTS):
+    audience.add_compare_example(
+        instruction="Which image follows the prompt better?",
+        datapoint=datapoint,
+        truth=datapoint[0],
+        context=prompt,
+        data_type="media",
+    )
 
 # Create and run job
 job_def = client.job.create_compare_job_definition(
