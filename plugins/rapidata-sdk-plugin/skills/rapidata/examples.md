@@ -67,6 +67,28 @@ job.display_progress_bar()
 results = job.get_results()
 ```
 
+## Classification with Quorum Stopping
+
+```python
+from rapidata import RapidataClient
+
+client = RapidataClient()
+audience = client.audience.find_audiences("alignment")[0]
+
+job_def = client.job.create_classification_job_definition(
+    name="Animal Classification with Quorum",
+    instruction="What animal is in this image?",
+    answer_options=["Cat", "Dog"],
+    datapoints=["pet1.jpg", "pet2.jpg"],
+    responses_per_datapoint=10,  # Maximum responses
+    quorum_threshold=7,          # Stop when 7 responses agree
+)
+job_def.preview()
+job = audience.assign_job(job_def)
+job.display_progress_bar()
+results = job.get_results()
+```
+
 ## Comparison Allowing "Neither" / "Both"
 
 ```python

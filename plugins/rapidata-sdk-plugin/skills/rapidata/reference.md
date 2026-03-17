@@ -13,7 +13,8 @@
 | `responses_per_datapoint` | int | Responses per item (default 10) |
 | `contexts` | list[str] | Text context per datapoint |
 | `media_contexts` | list[str] | Reference media per datapoint |
-| `confidence_threshold` | float | Early stopping threshold (0-1) |
+| `confidence_threshold` | float | Confidence-based early stopping threshold (0-1); cannot combine with `quorum_threshold` |
+| `quorum_threshold` | int | Quorum-based early stopping: stop when this many responses agree; cannot combine with `confidence_threshold` |
 | `settings` | list | Display/behavior settings |
 | `private_metadata` | list[dict] | Hidden metadata per datapoint |
 
@@ -133,9 +134,13 @@ df = results.to_pandas()
 json_data = results.to_json()
 ```
 
-## Early Stopping (Confidence Thresholds)
+## Early Stopping
 
-Stop collecting responses once sufficient consensus is reached.
+Two mutually exclusive strategies are available for Classification and Comparison jobs. You cannot set both on the same job.
+
+### Confidence Stopping
+
+Stop collecting responses once a statistical confidence threshold (weighted by labeler trust scores) is reached.
 
 ```python
 job_def = client.job.create_classification_job_definition(
@@ -153,6 +158,30 @@ job_def = client.job.create_classification_job_definition(
 - Saves cost by collecting fewer responses when consensus is clear
 - Best for unambiguous tasks with clear correct answers
 - Not recommended for subjective preference tasks
+
+### Quorum Stopping
+
+Stop collecting responses once a fixed number of responses agree on the same answer.
+
+```python
+job_def = client.job.create_classification_job_definition(
+    name="Animal Classification",
+    instruction="What animal is in this image?",
+    answer_options=["Cat", "Dog"],
+    datapoints=["pet1.jpg", "pet2.jpg"],
+    responses_per_datapoint=10,   # Maximum
+    quorum_threshold=7,           # Stop when 7 responses agree
+)
+```
+
+A datapoint stops when:
+1. `quorum_threshold` responses agree on the same answer, **OR**
+2. Quorum becomes mathematically impossible (e.g. votes are too split to reach the threshold), **OR**
+3. `responses_per_datapoint` total votes are collected
+
+- Simpler than confidence stopping — based on raw vote counts, not statistics
+- Good when you want predictable cost bounds with early termination
+- Best for unambiguous tasks with a clear correct answer
 
 ## Error Handling
 

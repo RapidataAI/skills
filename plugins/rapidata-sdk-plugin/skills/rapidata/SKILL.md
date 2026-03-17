@@ -83,11 +83,8 @@ job_def = client.job.create_classification_job_definition(
     responses_per_datapoint=10,
     contexts=["Optional text context per datapoint"],
     media_contexts=["optional_reference.jpg"],
-<<<<<<< HEAD
-    confidence_threshold=0.99,      # Optional early stopping
-=======
     confidence_threshold=0.99,      # Optional: confidence-based early stopping
->>>>>>> ad4238d64976839c748dd7f7859f4c65a3aabcaf
+    # quorum_threshold=7,           # Alternative: quorum-based early stopping (cannot use both)
     settings=[NoShuffle()],         # Keep answer order
     private_metadata=[{"id": "abc"}],
 )
@@ -107,11 +104,8 @@ job_def = client.job.create_compare_job_definition(
     contexts=["Prompt that generated these"],
     media_contexts=["reference.jpg"],
     a_b_names=["Model A", "Model B"],
-<<<<<<< HEAD
-    confidence_threshold=0.99,
-=======
     confidence_threshold=0.99,       # Optional: confidence-based early stopping
->>>>>>> ad4238d64976839c748dd7f7859f4c65a3aabcaf
+    # quorum_threshold=7,            # Alternative: quorum-based early stopping (cannot use both)
     settings=[AllowNeitherBoth()],   # Allow "Neither" or "Both" options
 )
 ```
@@ -205,8 +199,9 @@ settings=[FreeTextMinimumCharacters(min=50)]   # Min text length for free text
 3. **Min 3 audience examples** — custom audiences need at least 3 qualification examples before recruiting
 4. **25-second time limit** — labelers have ~25 seconds per task; keep instructions concise
 5. **Responses may exceed `responses_per_datapoint`** — concurrent labelers can cause slight overflow
-6. **Early stopping only for unambiguous tasks** — `confidence_threshold` works best when there's a clear correct answer
-7. **Failed uploads don't block job creation** — a `FailedUploadException` is raised but the job is still created with successful datapoints
+6. **Two early stopping strategies, mutually exclusive** — `confidence_threshold` (statistical, weighted by labeler trust scores) or `quorum_threshold` (stops when N responses agree); cannot use both at once
+7. **Early stopping only for unambiguous tasks** — both strategies work best when there's a clear correct answer
+8. **Failed uploads don't block job creation** — a `FailedUploadException` is raised but the job is still created with successful datapoints
 
 ## Additional Resources
 
