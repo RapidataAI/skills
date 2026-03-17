@@ -169,7 +169,8 @@ jobs:
 
           cat /tmp/claude-prompt.txt | claude -p \
             --dangerously-skip-permissions \
-            --max-turns 6
+            --max-turns 6 \
+            --verbose
 
           # Revert any files Claude touched outside the allowed set
           ALLOWED_FILES=(
