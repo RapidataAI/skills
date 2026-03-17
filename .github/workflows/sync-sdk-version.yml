@@ -9,6 +9,10 @@ on:
         description: "SDK version to sync to (leave empty to fetch from PyPI)"
         required: false
         type: string
+      from_version:
+        description: "SDK version to diff from (leave empty to use current plugin version)"
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -42,20 +46,51 @@ jobs:
           echo "version=$PLUGIN_VERSION" >> "$GITHUB_OUTPUT"
           echo "Current plugin version: $PLUGIN_VERSION"
 
-      - name: Update plugin version
-        if: steps.sdk-version.outputs.version != steps.plugin-version.outputs.version
+      - name: Determine old version for diff
+        id: old-version
         run: |
-          jq --arg v "${{ steps.sdk-version.outputs.version }}" '.version = $v' \
-            plugins/rapidata-sdk-plugin/.claude-plugin/plugin.json > tmp.json
-          mv tmp.json plugins/rapidata-sdk-plugin/.claude-plugin/plugin.json
-          git add plugins/rapidata-sdk-plugin/.claude-plugin/plugin.json
-          echo "Updated plugin version to ${{ steps.sdk-version.outputs.version }}"
+          if [ -n "${{ inputs.from_version }}" ]; then
+            OLD_VERSION="${{ inputs.from_version }}"
+            echo "Using manual from_version: $OLD_VERSION"
+          else
+            OLD_VERSION="${{ steps.plugin-version.outputs.version }}"
+            echo "Using current plugin version: $OLD_VERSION"
+          fi
+          echo "version=$OLD_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Check if update is needed
+        id: should-update
+        run: |
+          OLD_VERSION="${{ steps.old-version.outputs.version }}"
+          NEW_VERSION="${{ steps.sdk-version.outputs.version }}"
+          if [ "$OLD_VERSION" = "$NEW_VERSION" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Old and new versions are the same ($OLD_VERSION). Nothing to do."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "Will update from $OLD_VERSION to $NEW_VERSION"
+          fi
+
+      - name: Update plugin version
+        if: steps.should-update.outputs.skip != 'true'
+        run: |
+          NEW_VERSION="${{ steps.sdk-version.outputs.version }}"
+          CURRENT_VERSION="${{ steps.plugin-version.outputs.version }}"
+          if [ "$CURRENT_VERSION" != "$NEW_VERSION" ]; then
+            jq --arg v "$NEW_VERSION" '.version = $v' \
+              plugins/rapidata-sdk-plugin/.claude-plugin/plugin.json > tmp.json
+            mv tmp.json plugins/rapidata-sdk-plugin/.claude-plugin/plugin.json
+            git add plugins/rapidata-sdk-plugin/.claude-plugin/plugin.json
+            echo "Updated plugin version to $NEW_VERSION"
+          else
+            echo "Plugin version already at $NEW_VERSION, skipping version bump"
+          fi
 
       - name: Clone SDK and generate diff
         id: sdk-diff
-        if: steps.sdk-version.outputs.version != steps.plugin-version.outputs.version
+        if: steps.should-update.outputs.skip != 'true'
         run: |
-          OLD_VERSION="${{ steps.plugin-version.outputs.version }}"
+          OLD_VERSION="${{ steps.old-version.outputs.version }}"
           NEW_VERSION="${{ steps.sdk-version.outputs.version }}"
 
           git clone --bare --filter=blob:none https://github.com/RapidataAI/rapidata-python-sdk.git /tmp/sdk-repo
@@ -77,18 +112,16 @@ jobs:
           NEW_TAG=$(resolve_tag "$NEW_VERSION")
 
           if [ -z "$OLD_TAG" ] || [ -z "$NEW_TAG" ]; then
-            echo "::warning::Could not resolve SDK tags (old='$OLD_TAG' new='$NEW_TAG'). Skipping Claude update."
-            echo "skip_claude=true" >> "$GITHUB_OUTPUT"
-            exit 0
+            echo "::error::Could not resolve SDK tags (old='$OLD_TAG' new='$NEW_TAG')."
+            exit 1
           fi
 
           echo "Generating diff between $OLD_TAG and $NEW_TAG"
           DIFF=$(git -C /tmp/sdk-repo diff "$OLD_TAG" "$NEW_TAG" -- ':!src/rapidata/api_client' 2>/dev/null || true)
 
           if [ -z "$DIFF" ]; then
-            echo "::warning::SDK diff is empty between $OLD_TAG and $NEW_TAG. Skipping Claude update."
-            echo "skip_claude=true" >> "$GITHUB_OUTPUT"
-            exit 0
+            echo "::error::SDK diff is empty between $OLD_TAG and $NEW_TAG."
+            exit 1
           fi
 
           # Truncate diff at 100KB
@@ -98,14 +131,10 @@ jobs:
             echo -e "\n\n[DIFF TRUNCATED — original was ${DIFF_SIZE} bytes]" >> /tmp/sdk-diff.txt
           fi
 
-          echo "skip_claude=false" >> "$GITHUB_OUTPUT"
           echo "SDK diff generated (${DIFF_SIZE} bytes)"
 
       - name: Update skill docs with Claude
-        if: >-
-          steps.sdk-version.outputs.version != steps.plugin-version.outputs.version
-          && steps.sdk-diff.outputs.skip_claude != 'true'
-        continue-on-error: true
+        if: steps.should-update.outputs.skip != 'true'
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
         run: |
@@ -123,6 +152,7 @@ jobs:
           - Preserve the existing style, structure, and formatting of each file.
           - Only modify files that actually need changes based on the diff. If a file needs no changes, leave it exactly as-is.
           - Write updated files directly to disk using the Write tool. Do NOT create new files.
+          - Write ALL files that need changes in a SINGLE parallel tool call to minimize turns.
           - Do NOT add or remove sections unless the diff clearly warrants it.
           - Focus on: new/changed API methods, parameter changes, renamed classes, removed features, new examples if clearly demonstrated in the diff.
 
@@ -139,7 +169,7 @@ jobs:
 
           cat /tmp/claude-prompt.txt | claude -p \
             --dangerously-skip-permissions \
-            --max-turns 3
+            --max-turns 6
 
           # Revert any files Claude touched outside the allowed set
           ALLOWED_FILES=(
@@ -162,7 +192,7 @@ jobs:
           done
 
       - name: Commit and push
-        if: steps.sdk-version.outputs.version != steps.plugin-version.outputs.version
+        if: steps.should-update.outputs.skip != 'true'
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
