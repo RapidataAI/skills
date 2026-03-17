@@ -83,7 +83,11 @@ job_def = client.job.create_classification_job_definition(
     responses_per_datapoint=10,
     contexts=["Optional text context per datapoint"],
     media_contexts=["optional_reference.jpg"],
+<<<<<<< HEAD
     confidence_threshold=0.99,      # Optional early stopping
+=======
+    confidence_threshold=0.99,      # Optional: confidence-based early stopping
+>>>>>>> ad4238d64976839c748dd7f7859f4c65a3aabcaf
     settings=[NoShuffle()],         # Keep answer order
     private_metadata=[{"id": "abc"}],
 )
@@ -103,7 +107,11 @@ job_def = client.job.create_compare_job_definition(
     contexts=["Prompt that generated these"],
     media_contexts=["reference.jpg"],
     a_b_names=["Model A", "Model B"],
+<<<<<<< HEAD
     confidence_threshold=0.99,
+=======
+    confidence_threshold=0.99,       # Optional: confidence-based early stopping
+>>>>>>> ad4238d64976839c748dd7f7859f4c65a3aabcaf
     settings=[AllowNeitherBoth()],   # Allow "Neither" or "Both" options
 )
 ```
