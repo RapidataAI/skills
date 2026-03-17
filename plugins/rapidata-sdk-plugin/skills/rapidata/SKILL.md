@@ -84,7 +84,6 @@ job_def = client.job.create_classification_job_definition(
     contexts=["Optional text context per datapoint"],
     media_contexts=["optional_reference.jpg"],
     confidence_threshold=0.99,      # Optional: confidence-based early stopping
-    quorum_threshold=7,             # Optional: quorum-based early stopping (mutually exclusive with confidence_threshold)
     settings=[NoShuffle()],         # Keep answer order
     private_metadata=[{"id": "abc"}],
 )
@@ -105,7 +104,6 @@ job_def = client.job.create_compare_job_definition(
     media_contexts=["reference.jpg"],
     a_b_names=["Model A", "Model B"],
     confidence_threshold=0.99,       # Optional: confidence-based early stopping
-    quorum_threshold=7,              # Optional: quorum-based early stopping (mutually exclusive with confidence_threshold)
     settings=[AllowNeitherBoth()],   # Allow "Neither" or "Both" options
 )
 ```
