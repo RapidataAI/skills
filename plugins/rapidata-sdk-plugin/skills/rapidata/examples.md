@@ -134,6 +134,7 @@ for prompt, datapoint in zip(PROMPTS, DATAPOINTS):
         truth=datapoint[0],
         context=prompt,
         data_type="media",
+        explanation="The first image better matches the prompt description.",  # Shown to labelers who answer incorrectly
     )
 
 # Create and run job

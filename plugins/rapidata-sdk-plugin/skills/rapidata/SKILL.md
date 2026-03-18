@@ -142,6 +142,7 @@ audience.add_classification_example(
     truth=["Excellent"],
     context="Optional context",
     data_type="media",
+    explanation="This image is excellent due to its high resolution and sharp focus.",  # Shown to labelers who answer incorrectly
 )
 
 # Add comparison examples
@@ -151,6 +152,7 @@ audience.add_compare_example(
     truth="good.jpg",
     context="A cat on a chair",
     data_type="media",
+    explanation="The first image clearly shows a cat sitting on a chair as described.",  # Shown to labelers who answer incorrectly
 )
 ```
 
