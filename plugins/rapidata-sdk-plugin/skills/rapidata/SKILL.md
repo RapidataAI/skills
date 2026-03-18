@@ -183,11 +183,11 @@ results = order.get_results()
 ## Settings
 
 ```python
-from rapidata import NoShuffleSetting, AllowNeitherBothSetting, Markdown, AlertOnFastResponseSetting, FreeTextMinimumCharactersSetting
+from rapidata import NoShuffleSetting, AllowNeitherBothSetting, MarkdownSetting, AlertOnFastResponseSetting, FreeTextMinimumCharactersSetting
 
 settings=[NoShuffleSetting()]                         # Keep answer options in order (use for Likert scales)
 settings=[AllowNeitherBothSetting()]                  # Comparison: allow "Neither"/"Both"
-settings=[Markdown()]                                 # Render markdown in text
+settings=[MarkdownSetting()]                          # Render markdown in text
 settings=[AlertOnFastResponseSetting()]               # Alert if labeler answers too quickly
 settings=[FreeTextMinimumCharactersSetting(min=50)]   # Min text length for free text
 ```
