@@ -24,7 +24,7 @@ df = results.to_pandas()
 ## Classification with Likert Scale
 
 ```python
-from rapidata import RapidataClient, NoShuffle
+from rapidata import RapidataClient, NoShuffleSetting
 
 client = RapidataClient()
 audience = client.audience.find_audiences("alignment")[0]
@@ -36,7 +36,7 @@ job_def = client.job.create_classification_job_definition(
     datapoints=["video1.mp4", "video2.mp4"],
     contexts=["A cat playing piano", "A sunset over the ocean"],
     responses_per_datapoint=15,
-    settings=[NoShuffle()],  # Critical for ordered scales
+    settings=[NoShuffleSetting()],  # Critical for ordered scales
 )
 job = audience.assign_job(job_def)
 ```
@@ -92,7 +92,7 @@ results = job.get_results()
 ## Comparison Allowing "Neither" / "Both"
 
 ```python
-from rapidata import RapidataClient, AllowNeitherBoth
+from rapidata import RapidataClient, AllowNeitherBothSetting
 
 client = RapidataClient()
 audience = client.audience.find_audiences("alignment")[0]

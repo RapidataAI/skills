@@ -85,7 +85,7 @@ job_def = client.job.create_classification_job_definition(
     media_contexts=["optional_reference.jpg"],
     confidence_threshold=0.99,      # Optional: confidence-based early stopping
     # quorum_threshold=7,           # Alternative: quorum-based early stopping (cannot use both)
-    settings=[NoShuffle()],         # Keep answer order
+    settings=[NoShuffleSetting()],         # Keep answer order
     private_metadata=[{"id": "abc"}],
 )
 ```
@@ -106,7 +106,7 @@ job_def = client.job.create_compare_job_definition(
     a_b_names=["Model A", "Model B"],
     confidence_threshold=0.99,       # Optional: confidence-based early stopping
     # quorum_threshold=7,            # Alternative: quorum-based early stopping (cannot use both)
-    settings=[AllowNeitherBoth()],   # Allow "Neither" or "Both" options
+    settings=[AllowNeitherBothSetting()],   # Allow "Neither" or "Both" options
 )
 ```
 
@@ -183,13 +183,13 @@ results = order.get_results()
 ## Settings
 
 ```python
-from rapidata import NoShuffle, AllowNeitherBoth, Markdown, AlertOnFastResponse, FreeTextMinimumCharacters
+from rapidata import NoShuffleSetting, AllowNeitherBothSetting, Markdown, AlertOnFastResponseSetting, FreeTextMinimumCharactersSetting
 
-settings=[NoShuffle()]                         # Keep answer options in order (use for Likert scales)
-settings=[AllowNeitherBoth()]                  # Comparison: allow "Neither"/"Both"
-settings=[Markdown()]                          # Render markdown in text
-settings=[AlertOnFastResponse()]               # Alert if labeler answers too quickly
-settings=[FreeTextMinimumCharacters(min=50)]   # Min text length for free text
+settings=[NoShuffleSetting()]                         # Keep answer options in order (use for Likert scales)
+settings=[AllowNeitherBothSetting()]                  # Comparison: allow "Neither"/"Both"
+settings=[Markdown()]                                 # Render markdown in text
+settings=[AlertOnFastResponseSetting()]               # Alert if labeler answers too quickly
+settings=[FreeTextMinimumCharactersSetting(min=50)]   # Min text length for free text
 ```
 
 ## Key Gotchas
