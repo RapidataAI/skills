@@ -243,7 +243,7 @@ flow.delete()
 
 ## Model Ranking Insights (MRI / Benchmarks)
 
-Compare and rank AI models on leaderboards:
+Compare and rank AI models on leaderboards. Supports images, videos, audio, and text.
 
 ```python
 # Create benchmark
@@ -264,6 +264,7 @@ benchmark.evaluate_model(
     name="MyModel_v2",
     media=["mountain.png", "city.png"],
     prompts=["A serene mountain landscape", "A futuristic city"],
+    data_type="media",   # "media" (default) or "text"
 )
 
 # Or add a model without submitting (for more control)
@@ -271,12 +272,14 @@ participant = benchmark.add_model(
     name="MyModel_v3",
     media=["mountain_v3.png", "city_v3.png"],
     prompts=["A serene mountain landscape", "A futuristic city"],
+    data_type="media",   # "media" (default) or "text"
 )
 
 # Upload additional media to the same participant
 participant.upload_media(
     assets=["mountain_v3_extra.png"],
     identifiers=["A serene mountain landscape"],
+    data_type="media",   # "media" (default) or "text"
 )
 
 # Submit individually or all at once
