@@ -208,6 +208,8 @@ client = RapidataClient()
 flow = client.flow.create_ranking_flow(
     name="Ongoing Quality Ranking",
     instruction="Which image looks better?",
+    max_response_threshold=200,  # Aim for 200 responses per item
+    min_response_threshold=50,   # Accept as few as 50; fewer → item marked Incomplete
 )
 
 # Submit batches over time

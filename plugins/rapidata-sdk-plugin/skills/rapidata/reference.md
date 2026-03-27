@@ -220,6 +220,8 @@ Lightweight continuous ranking without full job/audience setup:
 flow = client.flow.create_ranking_flow(
     name="Image Quality Ranking",
     instruction="Which image looks better?",
+    max_response_threshold=100,   # Target responses per flow item (default 100)
+    min_response_threshold=50,    # Minimum acceptable responses; item is Incomplete if TTL expires below this
 )
 
 # Add items to rank
