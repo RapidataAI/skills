@@ -131,6 +131,8 @@ job_def = client.job.create_ranking_job_definition(
 
 Create an audience trained on your specific task. Minimum 3 examples required before recruiting starts.
 
+**Important:** Every qualification example and its associated truth must be manually and thoroughly reviewed by a human before use. If an example has a wrong or ambiguous truth value, the qualification process will filter out good labelers who answer correctly while letting through bad labelers who happen to match the incorrect answer — completely inverting quality control. Always verify that each example has a clear, unambiguous correct answer.
+
 ```python
 audience = client.audience.create_audience(name="Expert Evaluators")
 
