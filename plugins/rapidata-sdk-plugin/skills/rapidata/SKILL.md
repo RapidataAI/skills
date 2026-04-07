@@ -160,7 +160,7 @@ audience.add_compare_example(
 
 **Audience methods:**
 - `audience.assign_job(job_definition)` — start a job
-- `audience.find_jobs(name="filter", amount=10)` — find assigned jobs
+- `audience.find_jobs(name="filter", amount=10, page=1)` — find assigned jobs
 - `audience.update_filters([...])` — apply demographic filters
 - `audience.update_name("New Name")` — rename
 

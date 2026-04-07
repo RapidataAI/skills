@@ -237,8 +237,11 @@ status = flow_item.get_status()       # Non-blocking check
 matrix = flow_item.get_win_loss_matrix()  # Pandas DataFrame
 count = flow_item.get_response_count()
 
+# Query flow items
+items = flow.get_flow_items(amount=10, page=1)
+
 # Manage flows
-all_flows = client.flow.find_flows(amount=10)
+all_flows = client.flow.find_flows(name="", amount=10, page=1)
 flow = client.flow.get_flow_by_id("flow_id")
 flow.delete()
 ```
