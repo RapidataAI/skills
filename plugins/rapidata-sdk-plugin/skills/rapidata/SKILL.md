@@ -187,13 +187,14 @@ results = order.get_results()
 ## Settings
 
 ```python
-from rapidata import NoShuffleSetting, AllowNeitherBothSetting, MarkdownSetting, AlertOnFastResponseSetting, FreeTextMinimumCharactersSetting
+from rapidata import NoShuffleSetting, AllowNeitherBothSetting, MarkdownSetting, AlertOnFastResponseSetting, FreeTextMinimumCharactersSetting, PlayPercentageVideoSetting
 
-settings=[NoShuffleSetting()]                         # Keep answer options in order (use for Likert scales)
-settings=[AllowNeitherBothSetting()]                  # Comparison: allow "Neither"/"Both"
-settings=[MarkdownSetting()]                          # Render markdown in text
-settings=[AlertOnFastResponseSetting()]               # Alert if labeler answers too quickly
-settings=[FreeTextMinimumCharactersSetting(min=50)]   # Min text length for free text
+settings=[NoShuffleSetting()]                             # Keep answer options in order (use for Likert scales)
+settings=[AllowNeitherBothSetting()]                      # Comparison: allow "Neither"/"Both"
+settings=[MarkdownSetting()]                              # Render markdown in text
+settings=[AlertOnFastResponseSetting()]                   # Alert if labeler answers too quickly
+settings=[FreeTextMinimumCharactersSetting(min=50)]       # Min text length for free text
+settings=[PlayPercentageVideoSetting(percentage=95)]      # Require labelers to watch N% of video before answering (0-95)
 ```
 
 ## Key Gotchas

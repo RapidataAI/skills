@@ -222,7 +222,7 @@ flow = client.flow.create_ranking_flow(
     instruction="Which image looks better?",
     max_response_threshold=100,   # Target responses per flow item (default 100)
     min_response_threshold=50,    # Minimum acceptable responses; item is Incomplete if TTL expires below this
-    audience_id="audience_id",    # Optional: restrict flow to users in this audience
+    # audience_id="audience_id",  # Deprecated
     serve_responses=80,           # Optional: stop serving at this many accepted responses (≤ max_response_threshold)
 )
 
