@@ -246,6 +246,11 @@ items = flow.get_flow_items(amount=10, page=1)
 all_flows = client.flow.find_flows(name="", amount=10, page=1)
 flow = client.flow.get_flow_by_id("flow_id")
 flow.delete()
+
+# Delete other resources
+job_def.delete()   # Deletes the job definition and all its revisions
+job.delete()       # Deletes a running job
+audience.delete()  # Deletes the audience
 ```
 
 ## Model Ranking Insights (MRI / Benchmarks)

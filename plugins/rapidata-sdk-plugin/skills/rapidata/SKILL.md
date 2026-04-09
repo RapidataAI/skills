@@ -163,6 +163,11 @@ audience.add_compare_example(
 - `audience.find_jobs(name="filter", amount=10, page=1)` — find assigned jobs
 - `audience.update_filters([...])` — apply demographic filters
 - `audience.update_name("New Name")` — rename
+- `audience.delete()` — delete the audience
+
+**Job / Job Definition methods:**
+- `job_def.delete()` — delete a job definition and all its revisions
+- `job.delete()` — delete a running job
 
 ## Legacy Order API
 
