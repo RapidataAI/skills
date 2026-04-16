@@ -242,6 +242,9 @@ count = flow_item.get_response_count()
 # Query flow items
 items = flow.get_flow_items(amount=10, page=1)
 
+# Preheat for low-latency responses (call before time-sensitive batches)
+client.flow.preheat()
+
 # Manage flows
 all_flows = client.flow.find_flows(name="", amount=10, page=1)
 flow = client.flow.get_flow_by_id("flow_id")

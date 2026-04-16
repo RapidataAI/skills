@@ -212,6 +212,9 @@ flow = client.flow.create_ranking_flow(
     min_response_threshold=50,   # Accept as few as 50; fewer → item marked Incomplete
 )
 
+# Preheat for low-latency responses (call before time-sensitive batches)
+client.flow.preheat()
+
 # Submit batches over time
 batch1 = flow.create_new_flow_batch(
     datapoints=["gen1.jpg", "gen2.jpg", "gen3.jpg"],
