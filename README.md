@@ -36,7 +36,7 @@ These live in `plugins/rapidata-sdk-plugin/skills/rapidata/`.
 
 ## Version
 
-The plugin version tracks the Rapidata SDK version (currently 3.2.13). A GitHub Actions workflow automatically syncs the version when a new SDK release is published.
+The plugin version tracks the Rapidata SDK version (currently 3.9.2). A GitHub Actions workflow automatically syncs the version when a new SDK release is published.
 
 ## Repo structure
 
