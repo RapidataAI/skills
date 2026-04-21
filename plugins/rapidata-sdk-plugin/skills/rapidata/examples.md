@@ -102,8 +102,30 @@ job_def = client.job.create_compare_job_definition(
     instruction="Which response is more helpful?",
     datapoints=[["response_a.txt", "response_b.txt"]],
     data_type="text",
-    settings=[AllowNeitherBoth()],
+    settings=[AllowNeitherBothSetting()],
 )
+```
+
+## Free-Text Length Constraints (legacy order API)
+
+```python
+from rapidata import (
+    RapidataClient,
+    FreeTextMinimumCharactersSetting,
+    FreeTextMaxCharactersSetting,
+)
+
+client = RapidataClient()
+
+order = client.order.create_free_text_order(
+    name="Caption Generation",
+    instruction="Describe what's happening in this image in one sentence.",
+    datapoints=["scene1.jpg", "scene2.jpg"],
+    settings=[
+        FreeTextMinimumCharactersSetting(20),
+        FreeTextMaxCharactersSetting(200),
+    ],
+).run()
 ```
 
 ## Custom Audience with Full Workflow
@@ -137,6 +159,9 @@ for prompt, datapoint in zip(PROMPTS, DATAPOINTS):
         explanation="The first image better matches the prompt description.",  # Shown to labelers who answer incorrectly
     )
 
+# Inspect the examples we just added
+print(audience.get_examples())
+
 # Create and run job
 job_def = client.job.create_compare_job_definition(
     name="Production Comparison",
@@ -160,29 +185,52 @@ results = job.get_results()
 ```python
 from rapidata import (
     RapidataClient, CountryFilter, LanguageFilter,
-    UserScoreFilter, AgeFilter, AgeGroup
+    UserScoreFilter,
 )
 
 client = RapidataClient()
 audience = client.audience.create_audience(name="US English Evaluators")
 audience.update_filters([
-    CountryFilter(include=["US", "CA"]),
-    LanguageFilter(include=["en"]),
-    UserScoreFilter(min=0.5),
-    AgeFilter(include=[AgeGroup.AGE_25_34, AgeGroup.AGE_35_44]),
+    CountryFilter(country_codes=["US", "CA"]),
+    LanguageFilter(language_codes=["en"]),
+    UserScoreFilter(lower_bound=0.5, upper_bound=1.0),
 ])
 # Add examples, then assign jobs as normal
 ```
 
-## Ranking
+## Order with Age / Gender / Device Filters
+
+`AgeFilter`, `GenderFilter`, and `DeviceFilter` apply to orders, not to audiences.
+
+```python
+from rapidata import (
+    RapidataClient,
+    AgeFilter, AgeGroup, GenderFilter, Gender, DeviceFilter, DeviceType,
+)
+
+client = RapidataClient()
+
+order = client.order.create_classification_order(
+    name="Mobile-only classification",
+    instruction="What product is shown?",
+    answer_options=["Phone", "Laptop", "Tablet"],
+    datapoints=["p1.jpg", "p2.jpg"],
+    filters=[
+        AgeFilter(age_groups=[AgeGroup.AGE_25_34, AgeGroup.AGE_35_44]),
+        GenderFilter(genders=[Gender.FEMALE]),
+        DeviceFilter(device_types=[DeviceType.MOBILE]),
+    ],
+).run()
+```
+
+## Ranking via Legacy Order API
 
 ```python
 from rapidata import RapidataClient
 
 client = RapidataClient()
-audience = client.audience.find_audiences("alignment")[0]
 
-job_def = client.job.create_ranking_job_definition(
+order = client.order.create_ranking_order(
     name="Image Quality Ranking",
     instruction="Rank these images by visual quality",
     datapoints=[
@@ -192,10 +240,9 @@ job_def = client.job.create_ranking_job_definition(
     responses_per_comparison=1,
     random_comparisons_ratio=0.5,
     contexts=["A photorealistic landscape"],
-)
-job = audience.assign_job(job_def)
-job.display_progress_bar()
-results = job.get_results()
+).run()
+order.display_progress_bar()
+results = order.get_results()
 ```
 
 ## Continuous Ranking Flow
@@ -222,9 +269,9 @@ batch1 = flow.create_new_flow_batch(
     time_to_live=300,
 )
 
-batch1.display_progress_bar()
-results = batch1.get_results()
-matrix = batch1.get_win_loss_matrix()
+result1 = batch1.get_results()               # Blocks until complete
+matrix1 = batch1.get_win_loss_matrix()       # Pandas DataFrame
+print(result1.datapoints, result1.total_votes)
 
 # Later, submit more batches to the same flow
 batch2 = flow.create_new_flow_batch(
@@ -232,6 +279,9 @@ batch2 = flow.create_new_flow_batch(
     context="Generated from prompt B",
     time_to_live=300,
 )
+
+# Tune the flow as you learn more
+flow.update_config(instruction="Which image looks better overall?", max_responses=250)
 ```
 
 ## Model Benchmark (MRI)
@@ -269,9 +319,13 @@ benchmark.evaluate_model(
     prompts=["A serene mountain landscape", "A futuristic city at night", "A wise wizard portrait"],
 )
 
-# Get leaderboard standings
+# Leaderboard-level results
 standings = leaderboard.get_standings()
 print(standings)
+
+# Benchmark-level aggregation across leaderboards
+overall = benchmark.get_overall_standings()
+matrix = benchmark.get_win_loss_matrix()
 ```
 
 ## Model Benchmark — Staged Submission
@@ -327,12 +381,25 @@ except FailedUploadException as e:
     print(f"{len(e.failed_uploads)} of {len(datapoints)} failed to upload")
     for reason, failed in e.failures_by_reason.items():
         print(f"  {reason}: {len(failed)}")
+    for fu in e.detailed_failures:
+        print(f"    - {fu.item}: {fu.error_type}: {fu.error_message}")
 
     # Proceed if failure rate is acceptable
     if len(e.failed_uploads) / len(datapoints) < 0.1:
         job = audience.assign_job(job_def)
     else:
         print("Too many failures, aborting")
+```
+
+## Updating a Job Definition's Dataset
+
+```python
+# Keep the job definition (and its config / audience) but swap in new datapoints.
+job_def.update_dataset(
+    datapoints=["new1.jpg", "new2.jpg", "new3.jpg"],
+    data_type="media",
+    contexts=["ctx 1", "ctx 2", "ctx 3"],
+)
 ```
 
 ## Legacy Order API
@@ -355,10 +422,22 @@ order.display_progress_bar()
 results = order.get_results()
 
 # Comparison order
-order = client.order.create_compare_order(
+order_b = client.order.create_compare_order(
     name="Image Comparison",
     instruction="Which is better?",
     datapoints=[["a.jpg", "b.jpg"]],
     responses_per_datapoint=10,
 ).run()
+
+# Chain: start order_b only after order_a finishes
+order_c = client.order.create_classification_order(
+    name="Follow-up",
+    instruction="Tag the winners",
+    answer_options=["Good", "Bad"],
+    datapoints=["win1.jpg", "win2.jpg"],
+).run(after=order_b)
+
+# Pause / resume a running order
+order.pause()
+order.unpause()
 ```

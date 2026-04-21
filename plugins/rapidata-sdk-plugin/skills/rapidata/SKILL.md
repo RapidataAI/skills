@@ -29,13 +29,15 @@ client = RapidataClient(client_id="...", client_secret="...")
 - **MRI/Benchmark**: Compare and rank AI models on leaderboards
 
 **Client entry points:**
-- `client.job` — create job definitions
+- `client.job` — create job definitions (classification, comparison)
 - `client.audience` — create and find audiences
 - `client.flow` — continuous ranking flows
 - `client.mri` — model ranking insights / benchmarks
-- `client.order` — legacy order API (still supported)
+- `client.order` — legacy order API (still supported; currently the way to run ranking, locate, free-text, select-words, draw jobs)
 
 ## New API: Job Definitions + Audiences (Recommended)
+
+The new API currently exposes **classification** and **comparison** as job definitions. For ranking, continue to use either the Flow API (recommended for continuous ranking) or the legacy `client.order.create_ranking_order(...)`. For locate / free text / select words / draw, use the legacy order API.
 
 ### Step-by-step workflow
 
@@ -74,6 +76,8 @@ df = results.to_pandas()
 Select one category from multiple options.
 
 ```python
+from rapidata import NoShuffleSetting
+
 job_def = client.job.create_classification_job_definition(
     name="Image Classification",
     instruction="What animal is in this image?",
@@ -95,6 +99,8 @@ job_def = client.job.create_classification_job_definition(
 Compare two items and choose the better one.
 
 ```python
+from rapidata import AllowNeitherBothSetting
+
 job_def = client.job.create_compare_job_definition(
     name="Image Comparison",
     instruction="Which image is higher quality?",
@@ -112,10 +118,11 @@ job_def = client.job.create_compare_job_definition(
 
 ### Ranking
 
-Order multiple items by preference (uses pairwise comparisons internally).
+Ranking is available via the **legacy order API** or via **continuous ranking flows** (see below). The new job-definition API does not currently expose a public ranking constructor.
 
 ```python
-job_def = client.job.create_ranking_job_definition(
+# Legacy order API for ranking
+order = client.order.create_ranking_order(
     name="Image Quality Ranking",
     instruction="Rank these images by quality",
     datapoints=[["img1.jpg", "img2.jpg", "img3.jpg"]],
@@ -124,7 +131,10 @@ job_def = client.job.create_ranking_job_definition(
     data_type="media",
     random_comparisons_ratio=0.5,
     contexts=["Optional context"],
-)
+).run()
+
+order.display_progress_bar()
+results = order.get_results()
 ```
 
 ### Custom Audiences
@@ -156,6 +166,9 @@ audience.add_compare_example(
     data_type="media",
     explanation="The first image clearly shows a cat sitting on a chair as described.",  # Shown to labelers who answer incorrectly
 )
+
+# Inspect the examples currently on the audience
+examples_df = audience.get_examples(amount=10, page=1)
 ```
 
 **Audience methods:**
@@ -163,15 +176,22 @@ audience.add_compare_example(
 - `audience.find_jobs(name="filter", amount=10, page=1)` — find assigned jobs
 - `audience.update_filters([...])` — apply demographic filters
 - `audience.update_name("New Name")` — rename
+- `audience.get_examples(amount=10, page=1)` — list qualification examples (returns DataFrame)
 - `audience.delete()` — delete the audience
 
 **Job / Job Definition methods:**
+- `job_def.preview()` — open browser preview of what labelers see
+- `job_def.update_dataset(datapoints=..., data_type=..., contexts=..., media_contexts=..., private_metadata=...)` — replace the datapoints on an existing job definition
 - `job_def.delete()` — delete a job definition and all its revisions
+- `job.display_progress_bar(refresh_rate=5)` — blocking progress bar
+- `job.get_status()` — current status string
+- `job.get_results()` — blocks until Completed/Failed, returns `RapidataResults`
+- `job.view()` — open the job's details page in the browser
 - `job.delete()` — delete a running job
 
 ## Legacy Order API
 
-Still supported. Creates and runs tasks in a single step (no separate audience/job definition).
+Still fully supported. Creates and runs tasks in a single step (no separate audience/job definition). Available task types: `create_classification_order`, `create_compare_order`, `create_ranking_order`, `create_free_text_order`, `create_select_words_order`, `create_locate_order`, `create_draw_order`.
 
 ```python
 order = client.order.create_classification_order(
@@ -187,31 +207,56 @@ order.display_progress_bar()
 results = order.get_results()
 ```
 
-**Migration to new API:** Replace `create_*_order()` with `create_*_job_definition()`, replace validation sets with audience examples, use `audience.assign_job()` instead of `.run()`.
+**Order methods:** `run(after=None)`, `pause()`, `unpause()`, `delete()`, `get_status()`, `display_progress_bar()`, `get_results(preliminary_results=False)`, `preview()`, `view()`. `run(after=...)` accepts another `RapidataOrder` (or its id) so the new order only starts after the prior one finishes.
+
+**Migration to new API:** Replace `create_classification_order()` / `create_compare_order()` with `create_classification_job_definition()` / `create_compare_job_definition()`, replace validation sets with audience examples, use `audience.assign_job()` instead of `.run()`. Other task types are only available via the order API for now.
 
 ## Settings
 
+Settings control how a task is rendered and behaves for labelers. All settings are importable from the top-level `rapidata` package.
+
 ```python
-from rapidata import NoShuffleSetting, AllowNeitherBothSetting, MarkdownSetting, AlertOnFastResponseSetting, FreeTextMinimumCharactersSetting, PlayPercentageVideoSetting
+from rapidata import (
+    NoShuffleSetting, AllowNeitherBothSetting, MarkdownSetting,
+    MuteVideoSetting, FreeTextMinimumCharactersSetting, FreeTextMaxCharactersSetting,
+    SwapContextInstructionSetting, PlayPercentageVideoSetting,
+    OriginalLanguageOnlySetting, NoMistakeOptionSetting, DisableAutoloopSetting,
+    NoInstructionDisplaySetting, KeyboardNumericSetting,
+    LocateMaxPointsSetting, LocateMinPointsSetting,
+    ComparePanoramaSetting, CompareEquirectangularSetting,
+    CustomSetting,
+)
 
 settings=[NoShuffleSetting()]                             # Keep answer options in order (use for Likert scales)
 settings=[AllowNeitherBothSetting()]                      # Comparison: allow "Neither"/"Both"
 settings=[MarkdownSetting()]                              # Render markdown in text
-settings=[AlertOnFastResponseSetting()]                   # Alert if labeler answers too quickly
-settings=[FreeTextMinimumCharactersSetting(min=50)]       # Min text length for free text
+settings=[MuteVideoSetting()]                             # Start videos muted
+settings=[FreeTextMinimumCharactersSetting(50)]           # Min text length for free-text tasks
+settings=[FreeTextMaxCharactersSetting(500)]              # Max text length for free-text tasks (default 1024)
+settings=[SwapContextInstructionSetting()]                # Swap the positions of context and instruction
 settings=[PlayPercentageVideoSetting(percentage=95)]      # Require labelers to watch N% of video before answering (0-95)
+settings=[OriginalLanguageOnlySetting()]                  # Do not translate the task
+settings=[NoMistakeOptionSetting()]                       # Hide the "mark as mistake" option
+settings=[DisableAutoloopSetting()]                       # Disable automatic looping of media
+settings=[NoInstructionDisplaySetting()]                  # Hide instruction on the task screen
+settings=[KeyboardNumericSetting()]                       # Open numeric keyboard on mobile
+settings=[LocateMaxPointsSetting(5)]                      # Locate task: max number of points (default 3)
+settings=[LocateMinPointsSetting(1)]                      # Locate task: min number of points
+settings=[ComparePanoramaSetting()]                       # Render comparison media as 360° panorama
+settings=[CompareEquirectangularSetting()]                # Render comparison media as equirectangular VR
+settings=[CustomSetting(key="my_flag", value="on")]       # Pass a custom setting through to the backend
 ```
 
 ## Key Gotchas
 
 1. **Always preview first** — call `.preview()` before assigning to catch instruction issues early
-2. **Use `NoShuffle()` for Likert scales** — ordered answer options get shuffled by default
+2. **Use `NoShuffleSetting()` for Likert scales** — ordered answer options get shuffled by default
 3. **Min 3 audience examples** — custom audiences need at least 3 qualification examples before recruiting
 4. **25-second time limit** — labelers have ~25 seconds per task; keep instructions concise
 5. **Responses may exceed `responses_per_datapoint`** — concurrent labelers can cause slight overflow
 6. **Two early stopping strategies, mutually exclusive** — `confidence_threshold` (statistical, weighted by labeler trust scores) or `quorum_threshold` (stops when N responses agree); cannot use both at once
 7. **Early stopping only for unambiguous tasks** — both strategies work best when there's a clear correct answer
-8. **Failed uploads don't block job creation** — a `FailedUploadException` is raised but the job is still created with successful datapoints
+8. **Failed uploads don't block job creation** — a `FailedUploadException` is raised but the job is still created with successful datapoints; access the partial object via `e.job_definition` or `e.order`
 
 ## Ranking Flows (Continuous Ranking)
 
@@ -222,10 +267,10 @@ Lightweight continuous ranking without full job/audience setup:
 flow = client.flow.create_ranking_flow(
     name="Image Quality Ranking",
     instruction="Which image looks better?",
-    max_response_threshold=100,   # Target responses per flow item (default 100)
-    min_response_threshold=50,    # Minimum acceptable responses; item is Incomplete if TTL expires below this
-    # audience_id="audience_id",  # Deprecated
-    serve_responses=80,           # Optional: stop serving at this many accepted responses (≤ max_response_threshold)
+    max_response_threshold=100,       # Target responses per flow item (default 100)
+    min_response_threshold=50,        # Minimum acceptable responses; item is Incomplete if TTL expires below this
+    # validation_set_id="...",        # Optional: run a validation set alongside the flow
+    # settings=[NoShuffleSetting()],  # Optional: flow-wide settings
 )
 
 # Preheat for low-latency responses (call before time-sensitive batches)
@@ -238,22 +283,28 @@ flow_item = flow.create_new_flow_batch(
     time_to_live=300,  # Stop after 5 minutes
 )
 
-# Get results
-results = flow_item.get_results()     # Blocks until complete
-status = flow_item.get_status()       # Non-blocking check
-matrix = flow_item.get_win_loss_matrix()  # Pandas DataFrame
+# Get results (flow items have their own result shape, not RapidataResults)
+results = flow_item.get_results()         # Blocks until complete; returns FlowItemResult(datapoints, total_votes)
+status = flow_item.get_status()           # Non-blocking check
+matrix = flow_item.get_win_loss_matrix()  # Pandas DataFrame (blocks until complete)
 count = flow_item.get_response_count()
+
+# Tune a flow after creation
+flow.update_config(
+    instruction="New instruction",
+    starting_elo=1000,
+    min_responses=40,
+    max_responses=120,
+)
 
 # Manage flows
 all_flows = client.flow.find_flows(name="", amount=10, page=1)
 flow = client.flow.get_flow_by_id("flow_id")
+items = flow.get_flow_items(amount=10, page=1)
 flow.delete()
-
-# Delete other resources
-job_def.delete()   # Deletes the job definition and all its revisions
-job.delete()       # Deletes a running job
-audience.delete()  # Deletes the audience
 ```
+
+Note: `RapidataFlowItem` does **not** have `display_progress_bar()` — poll with `get_status()` or just call `get_results()` to block.
 
 ## Additional Resources
 
