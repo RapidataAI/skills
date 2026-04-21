@@ -246,8 +246,8 @@ All settings inherit from `RapidataSetting` and are importable from `rapidata`.
 | `AllowNeitherBothSetting` | `(value: bool = True)` | Comparison: allow "Neither" / "Both" answers |
 | `MarkdownSetting` | `(value: bool = True)` | Render markdown in text |
 | `MuteVideoSetting` | `(value: bool = True)` | Start videos muted |
-| `FreeTextMinimumCharactersSetting` | `(value: int)` — must be ≥ 1 | Min chars for free-text tasks |
-| `FreeTextMaxCharactersSetting` | `(value: int = 1024)` — must be ≥ 1 | Max chars for free-text tasks |
+| `FreeTextMinimumCharactersSetting` | `(value: int)` — must be ≥ 1 | Min chars for free-text tasks. Use with caution — see note below the table |
+| `FreeTextMaxCharactersSetting` | `(value: int = 1024)` — must be ≥ 1 | Max chars for free-text tasks. Use with caution — see note below the table |
 | `SwapContextInstructionSetting` | `(value: bool = True)` | Swap positions of context and instruction |
 | `PlayPercentageVideoSetting` | `(percentage: int = 95)` — 0–95 | Require labelers to watch N% of video |
 | `OriginalLanguageOnlySetting` | `(value: bool = True)` | Skip translation; show task in original language |
@@ -260,6 +260,8 @@ All settings inherit from `RapidataSetting` and are importable from `rapidata`.
 | `ComparePanoramaSetting` | `(value: bool = True)` | Render comparison media as 360° panorama |
 | `CompareEquirectangularSetting` | `(value: bool = True)` | Render comparison media as equirectangular VR |
 | `CustomSetting` | `(key: str, value: str)` | Pass a custom key/value through to the backend |
+
+**Note on `FreeTextMinimumCharactersSetting` / `FreeTextMaxCharactersSetting`:** use these with caution. Free-text responses already pass through a reasonableness check by default, so tightening the bounds is usually unnecessary and will reject otherwise valid answers. Only set them when the question genuinely demands a specific length (e.g. a single word, or a full paragraph).
 
 ## Error Handling
 

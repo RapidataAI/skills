@@ -231,8 +231,8 @@ settings=[NoShuffleSetting()]                             # Keep answer options 
 settings=[AllowNeitherBothSetting()]                      # Comparison: allow "Neither"/"Both"
 settings=[MarkdownSetting()]                              # Render markdown in text
 settings=[MuteVideoSetting()]                             # Start videos muted
-settings=[FreeTextMinimumCharactersSetting(50)]           # Min text length for free-text tasks
-settings=[FreeTextMaxCharactersSetting(500)]              # Max text length for free-text tasks (default 1024)
+settings=[FreeTextMinimumCharactersSetting(50)]           # Min text length for free-text tasks (use with caution — see note below)
+settings=[FreeTextMaxCharactersSetting(500)]              # Max text length for free-text tasks (default 1024) (use with caution — see note below)
 settings=[SwapContextInstructionSetting()]                # Swap the positions of context and instruction
 settings=[PlayPercentageVideoSetting(percentage=95)]      # Require labelers to watch N% of video before answering (0-95)
 settings=[OriginalLanguageOnlySetting()]                  # Do not translate the task
@@ -246,6 +246,8 @@ settings=[ComparePanoramaSetting()]                       # Render comparison me
 settings=[CompareEquirectangularSetting()]                # Render comparison media as equirectangular VR
 settings=[CustomSetting(key="my_flag", value="on")]       # Pass a custom setting through to the backend
 ```
+
+**Note on `FreeTextMinimumCharactersSetting` / `FreeTextMaxCharactersSetting`:** use these with caution. Free-text responses already pass through a reasonableness check by default, so tightening the bounds is usually unnecessary and will reject otherwise valid answers. Only set them when the question genuinely demands a specific length (e.g. a single word, or a full paragraph).
 
 ## Key Gotchas
 

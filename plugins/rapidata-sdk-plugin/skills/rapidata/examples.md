@@ -108,6 +108,8 @@ job_def = client.job.create_compare_job_definition(
 
 ## Free-Text Length Constraints (legacy order API)
 
+Use length constraints sparingly. Free-text responses are already filtered by a built-in reasonableness check, so these settings are usually unnecessary and will reject otherwise valid answers. Only set them when the question genuinely demands a specific length.
+
 ```python
 from rapidata import (
     RapidataClient,
