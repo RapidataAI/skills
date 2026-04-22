@@ -465,6 +465,8 @@ client.reset_credentials()
 
 All config fields support environment-variable overrides with the `RAPIDATA_` prefix (e.g., `RAPIDATA_maxWorkers=10`, `RAPIDATA_DISABLE_OTLP=1`).
 
+**Client authentication** is also resolved from environment variables: `RAPIDATA_CLIENT_ID` and `RAPIDATA_CLIENT_SECRET` are used before falling back to `~/.config/rapidata/credentials.json` and browser login. `RAPIDATA_ENVIRONMENT` overrides the API endpoint (default: `rapidata.ai`). Empty values are treated as unset and fall through to the next resolution layer.
+
 ## Human Prompting Best Practices
 
 - **Be concise** — labelers have ~25 seconds per task
