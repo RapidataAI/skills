@@ -259,6 +259,7 @@ settings=[CustomSetting(key="my_flag", value="on")]       # Pass a custom settin
 6. **Two early stopping strategies, mutually exclusive** — `confidence_threshold` (statistical, weighted by labeler trust scores) or `quorum_threshold` (stops when N responses agree); cannot use both at once
 7. **Early stopping only for unambiguous tasks** — both strategies work best when there's a clear correct answer
 8. **Failed uploads don't block job creation** — a `FailedUploadException` is raised but the job is still created with successful datapoints; access the partial object via `e.job_definition` or `e.order`
+9. **QR code printed on job/order creation** — when a job definition is created or an order enters preview, a terminal QR code linking to the campaign preview is printed automatically so you can open it on a phone; suppress it with `rapidata_config.logging.silent_mode = True`
 
 ## Ranking Flows (Continuous Ranking)
 
@@ -275,7 +276,7 @@ flow = client.flow.create_ranking_flow(
     # settings=[NoShuffleSetting()],  # Optional: flow-wide settings
 )
 
-# Preheat for low-latency responses (call before time-sensitive batches)
+# Preheat for low-latency responses (call ~5 minutes before time-sensitive batches)
 client.flow.preheat()
 
 # Add items to rank

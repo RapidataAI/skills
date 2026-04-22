@@ -261,7 +261,7 @@ flow = client.flow.create_ranking_flow(
     min_response_threshold=50,   # Accept as few as 50; fewer → item marked Incomplete
 )
 
-# Preheat for low-latency responses (call before time-sensitive batches)
+# Preheat for low-latency responses (call ~5 minutes before time-sensitive batches)
 client.flow.preheat()
 
 # Submit batches over time

@@ -340,7 +340,7 @@ flow.update_config(
     max_responses=120,
 )
 
-# Preheat for low-latency responses (call before time-sensitive batches)
+# Preheat for low-latency responses (call ~5 minutes before time-sensitive batches)
 client.flow.preheat()
 
 # Manage flows
@@ -445,7 +445,7 @@ from rapidata import rapidata_config, logger
 # Logging
 rapidata_config.logging.level = "INFO"       # DEBUG, INFO, WARNING, ERROR, CRITICAL
 rapidata_config.logging.log_file = "/path/to/log.txt"
-rapidata_config.logging.silent_mode = False
+rapidata_config.logging.silent_mode = False  # also suppresses terminal QR codes printed on job/order creation
 rapidata_config.logging.enable_otlp = True   # OpenTelemetry tracing
 
 # Upload tuning
