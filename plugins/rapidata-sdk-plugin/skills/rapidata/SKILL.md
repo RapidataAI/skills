@@ -7,6 +7,29 @@ description: Explains how to use the Rapidata API to get real and fast human ann
 
 Rapidata connects you with distributed human labelers worldwide for fast, high-quality data annotation. The SDK lets you create labeling tasks, manage annotator audiences, and retrieve results programmatically.
 
+## Before you start: check the skill is up to date
+
+This skill is pinned to **Rapidata SDK v3.9.4**. Run this check **once at the start of a Rapidata task** (not on every call) to confirm the user's runtime matches the skill:
+
+```bash
+python -c "import rapidata; print(rapidata.__version__)" 2>/dev/null \
+  || pip show rapidata 2>/dev/null | awk -F': ' '/^Version:/{print $2}'
+```
+
+Compare the output to the pinned version above:
+
+- **Installed > pinned** — this skill is **outdated**. The SDK may have new features, renamed methods, or changed signatures that this skill does not document.
+  1. First, try to update the plugin automatically. Claude Code installs plugins from this repo's `main` branch, so either:
+     - Re-run the install command to pull the latest: `/install-plugin https://github.com/RapidataAI/skills`, **or**
+     - Use the plugin manager: `/plugin` → `rapidata-sdk-plugin` → update.
+  2. Tell the user clearly:
+     > ⚠️ The Rapidata skill is pinned to v3.9.4 but v{installed} is installed — the skill docs may be out of date. I've suggested updating the plugin; if the update isn't available yet, I'll proceed with the documented API and flag any surprises.
+  3. Proceed using the documented API. If you hit an unexpected error (missing attribute, changed signature), stop and tell the user the skill is likely the cause — don't guess at the new API.
+
+- **Installed < pinned** — the user's runtime is older than this skill. Suggest `pip install -U rapidata` so the runtime matches.
+
+- **Match, or rapidata not installed** — proceed normally. (If not installed, the installation section below is the first step anyway.)
+
 ## Installation & Authentication
 
 ```python

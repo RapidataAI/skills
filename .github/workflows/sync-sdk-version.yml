@@ -86,6 +86,20 @@ jobs:
             echo "Plugin version already at $NEW_VERSION, skipping version bump"
           fi
 
+      - name: Update pinned SDK version in SKILL.md
+        if: steps.should-update.outputs.skip != 'true'
+        run: |
+          NEW_VERSION="${{ steps.sdk-version.outputs.version }}"
+          SKILL_FILE="plugins/rapidata-sdk-plugin/skills/rapidata/SKILL.md"
+          # Update both the pinned version declaration and any inline `v<semver>` references
+          # that Claude writes into the outdated-skill warning message.
+          sed -i -E \
+            -e "s|(This skill is pinned to \*\*Rapidata SDK v)[0-9]+\.[0-9]+\.[0-9]+(\*\*)|\1${NEW_VERSION}\2|" \
+            -e "s|(skill is pinned to v)[0-9]+\.[0-9]+\.[0-9]+|\1${NEW_VERSION}|" \
+            "$SKILL_FILE"
+          echo "Pinned SDK version in $SKILL_FILE updated to $NEW_VERSION"
+          grep -n "Rapidata SDK v" "$SKILL_FILE" || true
+
       - name: Clone SDK and generate diff
         id: sdk-diff
         if: steps.should-update.outputs.skip != 'true'
