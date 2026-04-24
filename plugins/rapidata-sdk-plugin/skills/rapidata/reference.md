@@ -156,7 +156,7 @@ EffortSelection(effort_budget=60)    # seconds of effort per session
           "userDetails": {
             "country": "US", "language": "en",
             "userScores": { "global": 0.75 },
-            "age": "25-34", "gender": "Female"
+            "demographics": { "age": "25-34", "gender": "Female" }
           }
         }
       ]
