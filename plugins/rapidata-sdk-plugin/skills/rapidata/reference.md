@@ -259,7 +259,7 @@ All settings inherit from `RapidataSetting` and are importable from `rapidata`.
 | `LocateMinPointsSetting` | `(value: int)` | Locate tasks: min points per labeler |
 | `ComparePanoramaSetting` | `(value: bool = True)` | Render comparison media as 360° panorama |
 | `CompareEquirectangularSetting` | `(value: bool = True)` | Render comparison media as equirectangular VR |
-| `CustomSetting` | `(key: str, value: str)` | Pass a custom key/value through to the backend |
+| `CustomSetting` | `(key: str, value: str, target: "rapids" \| "campaign" = "rapids")` | Pass a custom key/value through to the backend; `target` controls whether the flag is applied at the rapid level (`"rapids"`) or campaign level (`"campaign"`) |
 
 **Note on `FreeTextMinimumCharactersSetting` / `FreeTextMaxCharactersSetting`:** use these with caution. Free-text responses already pass through a reasonableness check by default, so tightening the bounds is usually unnecessary and will reject otherwise valid answers. Only set them when the question genuinely demands a specific length (e.g. a single word, or a full paragraph).
 
