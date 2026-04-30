@@ -9,7 +9,7 @@ Rapidata connects you with distributed human labelers worldwide for fast, high-q
 
 ## Before you start: check the skill is up to date
 
-This skill is pinned to **Rapidata SDK v3.9.11**. Run this check **once at the start of a Rapidata task** (not on every call) to confirm the user's runtime matches the skill:
+This skill is pinned to **Rapidata SDK v3.10.0**. Run this check **once at the start of a Rapidata task** (not on every call) to confirm the user's runtime matches the skill:
 
 ```bash
 python -c "import rapidata; print(rapidata.__version__)" 2>/dev/null \
@@ -23,7 +23,7 @@ Compare the output to the pinned version above:
      - Re-run the install command to pull the latest: `/install-plugin https://github.com/RapidataAI/skills`, **or**
      - Use the plugin manager: `/plugin` → `rapidata-sdk-plugin` → update.
   2. Tell the user clearly:
-     > ⚠️ The Rapidata skill is pinned to v3.9.11 but v{installed} is installed — the skill docs may be out of date. I've suggested updating the plugin; if the update isn't available yet, I'll proceed with the documented API and flag any surprises.
+     > ⚠️ The Rapidata skill is pinned to v3.10.0 but v{installed} is installed — the skill docs may be out of date. I've suggested updating the plugin; if the update isn't available yet, I'll proceed with the documented API and flag any surprises.
   3. Proceed using the documented API. If you hit an unexpected error (missing attribute, changed signature), stop and tell the user the skill is likely the cause — don't guess at the new API.
 
 - **Installed < pinned** — the user's runtime is older than this skill. Suggest `pip install -U rapidata` so the runtime matches.
@@ -114,7 +114,7 @@ job_def = client.job.create_classification_job_definition(
     data_type="media",              # "media" (default) or "text"
     responses_per_datapoint=10,
     contexts=["Optional text context per datapoint"],
-    media_contexts=["optional_reference.jpg"],
+    media_contexts=[["optional_reference.jpg"]],
     confidence_threshold=0.99,      # Optional: confidence-based early stopping
     # quorum_threshold=7,           # Alternative: quorum-based early stopping (cannot use both)
     settings=[NoShuffleSetting()],         # Keep answer order
@@ -136,7 +136,7 @@ job_def = client.job.create_compare_job_definition(
     data_type="media",
     responses_per_datapoint=10,
     contexts=["Prompt that generated these"],
-    media_contexts=["reference.jpg"],
+    media_contexts=[["reference.jpg"]],
     a_b_names=["Model A", "Model B"],
     confidence_threshold=0.99,       # Optional: confidence-based early stopping
     # quorum_threshold=7,            # Alternative: quorum-based early stopping (cannot use both)

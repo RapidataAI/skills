@@ -14,7 +14,7 @@ The new job-definition API exposes **classification** and **comparison** publicl
 | `data_type` | `"media"` \| `"text"` | `"media"` (default, covers image/video/audio) or `"text"` |
 | `responses_per_datapoint` | int | Responses per item (default 10) |
 | `contexts` | list[str] \| None | Text context per datapoint |
-| `media_contexts` | list[str] \| None | Reference media per datapoint |
+| `media_contexts` | list[list[str]] \| None | Reference images per datapoint; each entry is a list of image URLs/paths (one inner list per datapoint) |
 | `confidence_threshold` | float \| None | Confidence-based early stopping threshold (0-1); cannot combine with `quorum_threshold` |
 | `quorum_threshold` | int \| None | Quorum-based early stopping: stop when this many responses agree; cannot combine with `confidence_threshold` |
 | `settings` | `Sequence[RapidataSetting] \| None` | Display/behavior settings |

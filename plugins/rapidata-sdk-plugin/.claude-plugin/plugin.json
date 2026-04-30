@@ -1,5 +1,5 @@
 {
   "name": "rapidata-sdk-plugin",
-  "version": "3.9.11",
+  "version": "3.10.0",
   "description": "Claude Code plugin for the Rapidata annotation SDK"
 }
