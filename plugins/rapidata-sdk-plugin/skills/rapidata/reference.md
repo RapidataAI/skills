@@ -417,7 +417,7 @@ for p in benchmark.participants:
 
 # Get results
 standings = leaderboard.get_standings()                    # Pandas DataFrame for one leaderboard
-overall = benchmark.get_overall_standings(tags=None)       # Aggregated ELO across all leaderboards
+overall = benchmark.get_overall_standings(tags=None, leaderboard_ids=None)  # Aggregated ELO across all leaderboards
 matrix_lb = leaderboard.get_win_loss_matrix()              # Pairwise wins/losses for one leaderboard
 matrix_bm = benchmark.get_win_loss_matrix(                 # Pairwise wins/losses across leaderboards
     tags=None, participant_ids=None, leaderboard_ids=None, use_weighted_scoring=None,
