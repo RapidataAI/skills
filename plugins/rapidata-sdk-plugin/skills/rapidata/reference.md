@@ -48,7 +48,7 @@ All filters are importable from the top-level `rapidata` package.
 
 ```python
 from rapidata import (
-    CountryFilter, LanguageFilter, UserScoreFilter,
+    CountryFilter, LanguageFilter, UserScoreFilter, DemographicFilter,
     AgeFilter, GenderFilter, DeviceFilter, CampaignFilter, CustomFilter,
     AgeGroup, Gender, DeviceType,
     NotFilter, OrFilter, AndFilter,
@@ -58,6 +58,7 @@ audience.update_filters([
     CountryFilter(country_codes=["US", "CA", "GB"]),                  # 2-letter ISO codes (uppercased)
     LanguageFilter(language_codes=["en", "fr"]),                      # 2-letter ISO language codes
     UserScoreFilter(lower_bound=0.5, upper_bound=0.99),               # 0.0–1.0
+    DemographicFilter(identifier="age", values=["18-29", "30-39"]),   # demographic attribute filter
     AgeFilter(age_groups=[AgeGroup.AGE_25_34, AgeGroup.AGE_35_44]),
     GenderFilter(genders=[Gender.MALE, Gender.FEMALE]),
     DeviceFilter(device_types=[DeviceType.MOBILE, DeviceType.DESKTOP]),
@@ -66,6 +67,13 @@ audience.update_filters([
 # Combine filters with logic operators
 combined = OrFilter([filter1, filter2])
 audience.update_filters([NotFilter(combined)])
+
+# Derive a filtered subset of a trained audience without re-onboarding labelers
+filtered = base_audience.filter([
+    CountryFilter(["US"]),
+    DemographicFilter("age", ["18-29"]),
+])
+job = filtered.assign_job(job_def)  # filtered is a regular RapidataAudience
 ```
 
 ### Filter signatures
@@ -75,6 +83,7 @@ audience.update_filters([NotFilter(combined)])
 | `CountryFilter` | `(country_codes: list[str])` | yes |
 | `LanguageFilter` | `(language_codes: list[str])` | yes |
 | `UserScoreFilter` | `(lower_bound: float = 0.0, upper_bound: float = 1.0, dimension: str \| None = None)` | yes |
+| `DemographicFilter` | `(identifier: str, values: list[str])` | yes |
 | `AgeFilter` | `(age_groups: list[AgeGroup])` | orders only |
 | `GenderFilter` | `(genders: list[Gender])` | orders only |
 | `DeviceFilter` | `(device_types: list[DeviceType])` | orders only |

@@ -200,6 +200,33 @@ audience.update_filters([
 # Add examples, then assign jobs as normal
 ```
 
+## Filtered Audience
+
+Derive a filtered subset of a trained audience without re-onboarding labelers:
+
+```python
+from rapidata import RapidataClient, CountryFilter, DemographicFilter
+
+client = RapidataClient()
+
+base = client.audience.get_audience_by_id("audience_id")
+
+filtered = base.filter([
+    CountryFilter(["US"]),
+    DemographicFilter("age", ["18-29"]),
+])
+
+job_def = client.job.create_classification_job_definition(
+    name="US Young Adult Classification",
+    instruction="What product is shown?",
+    answer_options=["Phone", "Laptop", "Tablet"],
+    datapoints=["p1.jpg", "p2.jpg"],
+)
+job = filtered.assign_job(job_def)
+job.display_progress_bar()
+results = job.get_results()
+```
+
 ## Order with Age / Gender / Device Filters
 
 `AgeFilter`, `GenderFilter`, and `DeviceFilter` apply to orders, not to audiences.
