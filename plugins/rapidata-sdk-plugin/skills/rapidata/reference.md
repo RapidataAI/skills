@@ -73,7 +73,7 @@ filtered = base_audience.filter([
     CountryFilter(["US"]),
     DemographicFilter("age", ["18-29"]),
 ])
-job = filtered.assign_job(job_def)  # filtered is a regular RapidataAudience
+job = filtered.assign_job(job_def)  # filtered is a RapidataFilteredAudience
 ```
 
 ### Filter signatures
