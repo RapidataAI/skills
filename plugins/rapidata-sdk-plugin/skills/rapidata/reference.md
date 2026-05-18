@@ -449,7 +449,7 @@ benchmark = client.mri.get_benchmark_by_id("benchmark_id")
 ## Configuration
 
 ```python
-from rapidata import rapidata_config, logger
+from rapidata import rapidata_config, logger, CompressionConfig
 
 # Logging
 rapidata_config.logging.level = "INFO"       # DEBUG, INFO, WARNING, ERROR, CRITICAL
@@ -464,11 +464,26 @@ rapidata_config.upload.cacheToDisk = True
 rapidata_config.upload.cacheTimeout = 1.0
 rapidata_config.upload.batchSize = 1000       # URLs per batch (100–5000)
 rapidata_config.upload.batchPollInterval = 0.5
+rapidata_config.upload.compression = CompressionConfig(
+    enabled=True,
+    quality=70,        # WebP quality 1–100
+    max_dimension=1024, # Max width or height in pixels
+)  # Optional: per-upload image compression override (None = server default)
 
 # Client-level maintenance
 client.clear_all_caches()
 client.reset_credentials()
 ```
+
+`CompressionConfig` fields (all default `None` = defer to server):
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `enabled` | `bool \| None` | Force compression on or off |
+| `quality` | `int \| None` | WebP quality (1–100) |
+| `max_dimension` | `int \| None` | Max width or height in pixels (≥ 1) |
+
+Currently applies to single-asset uploads (`/asset/file` and `/asset/url`); batched URL uploads will gain the same override in a follow-up SDK release.
 
 `cacheLocation` (`~/.cache/rapidata/upload_cache`) and `cacheShards` (128) are immutable — don't try to assign them.
 
