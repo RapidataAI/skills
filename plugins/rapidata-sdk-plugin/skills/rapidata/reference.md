@@ -483,7 +483,7 @@ client.reset_credentials()
 | `quality` | `int \| None` | WebP quality (1–100) |
 | `max_dimension` | `int \| None` | Max width or height in pixels (≥ 1) |
 
-Currently applies to single-asset uploads (`/asset/file` and `/asset/url`); batched URL uploads will gain the same override in a follow-up SDK release.
+Applies to single-asset uploads (`/asset/file` and `/asset/url`) and batched URL uploads.
 
 `cacheLocation` (`~/.cache/rapidata/upload_cache`) and `cacheShards` (128) are immutable — don't try to assign them.
 
