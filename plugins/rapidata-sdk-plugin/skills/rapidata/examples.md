@@ -205,7 +205,7 @@ audience.update_filters([
 Derive a filtered subset of a trained audience without re-onboarding labelers:
 
 ```python
-from rapidata import RapidataClient, CountryFilter, DemographicFilter
+from rapidata import RapidataClient, CountryFilter, LanguageFilter
 
 client = RapidataClient()
 
@@ -213,7 +213,7 @@ base = client.audience.get_audience_by_id("audience_id")
 
 filtered = base.filter([
     CountryFilter(["US"]),
-    DemographicFilter("age", ["18-29"]),
+    LanguageFilter(["en"]),
 ])
 
 job_def = client.job.create_classification_job_definition(

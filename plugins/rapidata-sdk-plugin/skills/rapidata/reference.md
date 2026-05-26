@@ -69,11 +69,17 @@ combined = OrFilter([filter1, filter2])
 audience.update_filters([NotFilter(combined)])
 
 # Derive a filtered subset of a trained audience without re-onboarding labelers
+# Supported filters for .filter(): CountryFilter and LanguageFilter only
 filtered = base_audience.filter([
     CountryFilter(["US"]),
-    DemographicFilter("age", ["18-29"]),
+    LanguageFilter(["en"]),
 ])
 job = filtered.assign_job(job_def)  # filtered is a RapidataFilteredAudience
+
+# Combine filters with &, |, ~ operators
+us_or_ca_not_fr = base_audience.filter([
+    (CountryFilter(["US"]) | CountryFilter(["CA"])) & ~LanguageFilter(["fr"]),
+])
 ```
 
 ### Filter signatures
@@ -389,7 +395,7 @@ leaderboard = benchmark.create_leaderboard(
     inverse_ranking=False,
     # level_of_detail="high",            # "debug" | "low" | "medium" | "high" | "very high"
     # min_responses_per_matchup=5,
-    # audience_id="...",                 # Optional: restrict to a specific audience
+    # audience_id="...",                 # Optional: id string, RapidataAudience, or RapidataFilteredAudience
     # settings=[...],
 )
 
