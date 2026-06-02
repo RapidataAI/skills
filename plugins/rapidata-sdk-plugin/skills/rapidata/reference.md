@@ -427,9 +427,28 @@ participant.upload_media(
 participant.run()       # Submit one participant
 benchmark.run()         # Submit all unsubmitted (CREATED) participants
 
-# List participants and their status
+# Faucet — configure a participant to auto-generate samples via Replicate
+participant.set_faucet(
+    model_owner="stability-ai",  # Replicate model owner (e.g. "stability-ai")
+    model_name="sdxl",           # Model name (e.g. "sdxl")
+    model_version=None,          # Optional: pin a specific version hash
+)
+participant.delete_faucet()      # Remove the faucet from the participant
+
+# Sample generation — trigger a batch generation run across participants with faucets
+sample_gen = benchmark.generate_samples(
+    samples_per_prompt=3,         # How many samples per prompt (1–16)
+    participant_ids=None,          # Optional: restrict to specific participant ids
+    prompt_identifiers=None,       # Optional: restrict to specific prompt identifiers
+    tags=None,                     # Optional: restrict to prompts matching any of these tags
+)
+# sample_gen.id                       — generation request id
+# sample_gen.total_count              — total items queued
+# sample_gen.skipped_participant_ids  — participants without a configured faucet
+
+# List participants and their status (p.faucet is None if no faucet is configured)
 for p in benchmark.participants:
-    print(p.name, p.status)
+    print(p.name, p.status, p.faucet)
 
 # Get results
 standings = leaderboard.get_standings()                    # Pandas DataFrame for one leaderboard
