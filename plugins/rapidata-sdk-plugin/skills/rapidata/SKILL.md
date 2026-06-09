@@ -9,7 +9,7 @@ Rapidata connects you with distributed human labelers worldwide for fast, high-q
 
 ## Before you start: check the skill is up to date
 
-This skill is pinned to **Rapidata SDK v3.12.0**. Run this check **once at the start of a Rapidata task** (not on every call) to confirm the user's runtime matches the skill:
+This skill is pinned to **Rapidata SDK v3.12.1**. Run this check **once at the start of a Rapidata task** (not on every call) to confirm the user's runtime matches the skill:
 
 ```bash
 python -c "import rapidata; print(rapidata.__version__)" 2>/dev/null \
@@ -23,7 +23,7 @@ Compare the output to the pinned version above:
      - Re-run the install command to pull the latest: `/install-plugin https://github.com/RapidataAI/skills`, **or**
      - Use the plugin manager: `/plugin` → `rapidata-sdk-plugin` → update.
   2. Tell the user clearly:
-     > ⚠️ The Rapidata skill is pinned to v3.12.0 but v{installed} is installed — the skill docs may be out of date. I've suggested updating the plugin; if the update isn't available yet, I'll proceed with the documented API and flag any surprises.
+     > ⚠️ The Rapidata skill is pinned to v3.12.1 but v{installed} is installed — the skill docs may be out of date. I've suggested updating the plugin; if the update isn't available yet, I'll proceed with the documented API and flag any surprises.
   3. Proceed using the documented API. If you hit an unexpected error (missing attribute, changed signature), stop and tell the user the skill is likely the cause — don't guess at the new API.
 
 - **Installed < pinned** — the user's runtime is older than this skill. Suggest `pip install -U rapidata` so the runtime matches.
@@ -342,6 +342,119 @@ flow.delete()
 ```
 
 Note: `RapidataFlowItem` does **not** have `display_progress_bar()` — poll with `get_status()` or just call `get_results()` to block.
+
+## Model Ranking Insights (MRI / Benchmarks)
+
+Compare and rank AI models on leaderboards. Supports images, videos, audio, and text.
+
+```python
+# Create benchmark
+benchmark = client.mri.create_new_benchmark(
+    name="AI Art Competition",
+    prompts=["A serene mountain landscape", "A futuristic city"],
+    # identifiers=[...],        # Optional: stable ids for each prompt
+    # prompt_assets=[...],      # Optional: reference media for each prompt
+    # tags=[...],               # Optional: tags applied to the benchmark
+)
+
+# Add prompts later if needed (one or many, matched up by index)
+benchmark.add_prompts(
+    prompts=["A quiet lake at dawn"],
+    # identifiers=["dawn_lake"],   # Optional: stable id per prompt
+    # prompt_assets=["ref.jpg"],   # Optional: reference media per prompt
+    # tags=[["landscape"]],        # Optional: list of tag lists, one per prompt
+)
+
+# Create leaderboard
+leaderboard = benchmark.create_leaderboard(
+    name="Realism",
+    instruction="Which image is more realistic?",
+    show_prompt=False,
+    show_prompt_asset=False,
+    inverse_ranking=False,
+    # level_of_detail="high",            # "debug" | "low" | "medium" | "high" | "very high"
+    # min_responses_per_matchup=5,
+    # audience_id="...",                 # Optional: id string, RapidataAudience, or RapidataFilteredAudience
+    # settings=[...],
+)
+
+# Evaluate a model (creates participant, uploads media, and submits in one step)
+benchmark.evaluate_model(
+    name="MyModel_v2",
+    media=["mountain.png", "city.png"],
+    prompts=["A serene mountain landscape", "A futuristic city"],
+    data_type="media",   # "media" (default) or "text"
+)
+
+# Or add a model without submitting (for more control)
+participant = benchmark.add_model(
+    name="MyModel_v3",
+    media=["mountain_v3.png", "city_v3.png"],
+    prompts=["A serene mountain landscape", "A futuristic city"],
+    data_type="media",
+)
+
+# Upload additional media to the same participant
+participant.upload_media(
+    assets=["mountain_v3_extra.png"],
+    identifiers=["A serene mountain landscape"],
+    data_type="media",
+)
+
+# Submit individually or all at once
+participant.run()       # Submit one participant
+benchmark.run()         # Submit all unsubmitted (CREATED) participants
+
+# Faucet — configure a participant to auto-generate samples via Replicate
+participant.set_faucet(
+    model_owner="stability-ai",  # Replicate model owner (e.g. "stability-ai")
+    model_name="sdxl",           # Model name (e.g. "sdxl")
+    model_version=None,          # Optional: pin a specific version hash
+    additional_inputs={"aspect_ratio": "16:9"},  # Optional: extra model inputs (not prompt/num_outputs)
+)
+participant.delete_faucet()      # Remove the faucet from the participant
+participant.enable()              # Re-enable a previously disabled participant
+
+# Sample generation — trigger a batch generation run across participants with faucets
+sample_gen = benchmark.generate_samples(
+    samples_per_prompt=3,         # How many samples per prompt (1–16)
+    participant_ids=None,          # Optional: restrict to specific participant ids
+    prompt_identifiers=None,       # Optional: restrict to specific prompt identifiers
+    tags=None,                     # Optional: restrict to prompts matching any of these tags
+)
+# sample_gen.id                       — generation request id
+# sample_gen.total_count              — total items queued
+# sample_gen.skipped_participant_ids  — participants without a configured faucet
+
+# List participants and their status (p.faucet is None if no faucet is configured)
+for p in benchmark.participants:
+    print(p.name, p.status, p.faucet)
+
+# Prompts — original language and English translation (aligned by index)
+print(benchmark.prompts)          # As originally provided
+print(benchmark.english_prompts)  # Server-side English translations, aligned by index
+
+# Get results
+standings = leaderboard.get_standings()                    # Pandas DataFrame for one leaderboard
+overall = benchmark.get_overall_standings(tags=None, leaderboard_ids=None)  # Aggregated ELO across all leaderboards
+matrix_lb = leaderboard.get_win_loss_matrix()              # Pairwise wins/losses for one leaderboard
+matrix_bm = benchmark.get_win_loss_matrix(                 # Pairwise wins/losses across leaderboards
+    tags=None, participant_ids=None, leaderboard_ids=None, use_weighted_scoring=None,
+)
+
+# Update leaderboard config live
+leaderboard.name = "Realism (Updated)"
+leaderboard.level_of_detail = "very high"
+leaderboard.min_responses_per_matchup = 7
+
+# Open in browser
+benchmark.view()
+leaderboard.view()
+
+# Find existing benchmarks
+benchmarks = client.mri.find_benchmarks(name="AI Art", amount=10)
+benchmark = client.mri.get_benchmark_by_id("benchmark_id")
+```
 
 ## Additional Resources
 

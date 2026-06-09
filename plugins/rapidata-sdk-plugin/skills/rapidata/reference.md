@@ -458,6 +458,10 @@ sample_gen = benchmark.generate_samples(
 for p in benchmark.participants:
     print(p.name, p.status, p.faucet)
 
+# Prompts — original language and English translation (aligned by index)
+print(benchmark.prompts)          # As originally provided
+print(benchmark.english_prompts)  # Server-side English translations, aligned by index
+
 # Get results
 standings = leaderboard.get_standings()                    # Pandas DataFrame for one leaderboard
 overall = benchmark.get_overall_standings(tags=None, leaderboard_ids=None)  # Aggregated ELO across all leaderboards
