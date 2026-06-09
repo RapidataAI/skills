@@ -334,7 +334,7 @@ flow_item = flow.create_new_flow_batch(
     data_type="media",                # "media" (default) or "text"
     private_metadata=[...],           # Optional
     accept_failed_uploads=False,      # If True, proceed even if some uploads fail
-    time_to_live=300,                 # Stop after N seconds
+    time_to_live=300,                 # Seconds until expiry (60–3600; defaults to 3600 when omitted)
 )
 
 # Get results — flow items return FlowItemResult, NOT RapidataResults
@@ -385,8 +385,13 @@ benchmark = client.mri.create_new_benchmark(
     # tags=[...],               # Optional: tags applied to the benchmark
 )
 
-# Add a prompt later if needed
-benchmark.add_prompt(prompt="A quiet lake at dawn")
+# Add prompts later if needed (one or many, matched up by index)
+benchmark.add_prompts(
+    prompts=["A quiet lake at dawn"],
+    # identifiers=["dawn_lake"],   # Optional: stable id per prompt
+    # prompt_assets=["ref.jpg"],   # Optional: reference media per prompt
+    # tags=[["landscape"]],        # Optional: list of tag lists, one per prompt
+)
 
 # Create leaderboard
 leaderboard = benchmark.create_leaderboard(
@@ -433,8 +438,10 @@ participant.set_faucet(
     model_owner="stability-ai",  # Replicate model owner (e.g. "stability-ai")
     model_name="sdxl",           # Model name (e.g. "sdxl")
     model_version=None,          # Optional: pin a specific version hash
+    additional_inputs={"aspect_ratio": "16:9"},  # Optional: extra model inputs (not prompt/num_outputs)
 )
 participant.delete_faucet()      # Remove the faucet from the participant
+participant.enable()              # Re-enable a previously disabled participant
 
 # Sample generation — trigger a batch generation run across participants with faucets
 sample_gen = benchmark.generate_samples(
