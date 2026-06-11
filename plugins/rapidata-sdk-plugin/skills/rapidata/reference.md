@@ -404,6 +404,7 @@ leaderboard = benchmark.create_leaderboard(
     # min_responses_per_matchup=5,
     # audience_id="...",                 # Optional: id string, RapidataAudience, or RapidataFilteredAudience
     # settings=[...],
+    # vote_aggregation="AllVotes",       # "AllVotes" (default) or "MajorityVote" — how matchup votes are aggregated
 )
 
 # Evaluate a model (creates participant, uploads media, and submits in one step)
@@ -474,6 +475,7 @@ matrix_bm = benchmark.get_win_loss_matrix(                 # Pairwise wins/losse
 leaderboard.name = "Realism (Updated)"
 leaderboard.level_of_detail = "very high"
 leaderboard.min_responses_per_matchup = 7
+leaderboard.vote_aggregation = "MajorityVote"  # "AllVotes" or "MajorityVote"; only affects future runs
 
 # Open in browser
 benchmark.view()
