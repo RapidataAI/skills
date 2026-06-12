@@ -2,7 +2,7 @@
 
 ## Job Definition Parameters
 
-The new job-definition API exposes **classification** and **comparison** publicly. Ranking / locate / free-text / select-words / draw are currently available through the legacy order API (see the "Legacy Order API" section below).
+The new job-definition API exposes **classification**, **comparison**, and **locate** publicly. Ranking / free-text / select-words / draw are currently available through the legacy order API (see the "Legacy Order API" section below).
 
 ### Common parameters (classification & comparison)
 
@@ -32,6 +32,23 @@ The new job-definition API exposes **classification** and **comparison** publicl
 |-----------|------|-------------|
 | `datapoints` | list[list[str]] | Pairs: `[["a1.jpg","b1.jpg"], ...]` |
 | `a_b_names` | list[str] \| None | Custom labels for results, e.g. `["Model A","Model B"]` |
+
+### Locate-specific
+
+Locate has no job-specific parameters — only the core parameters apply. `data_type`, `answer_options`, `a_b_names`, `confidence_threshold`, and `quorum_threshold` are not available for locate jobs. `datapoints` is `list[str]` (one item per row).
+
+```python
+job_definition = client.job.create_locate_job_definition(
+    name="Artifact Detection",
+    instruction="Tap on any visual glitches or errors in the image.",
+    datapoints=["image1.jpg", "image2.jpg"],
+    responses_per_datapoint=35,
+    contexts=["Optional context"],
+    settings=[LocateMaxPointsSetting(5)],
+)
+```
+
+For locate audience examples, use `audience.add_locate_example(instruction, datapoint, truths, context=None, media_context=None, explanation=None, settings=None)` where `truths` is a `list[Box]` (import `Box` from `rapidata`); coordinates are image ratios (0.0–1.0).
 
 ### Ranking (via `client.order.create_ranking_order` or `client.flow.create_ranking_flow`)
 

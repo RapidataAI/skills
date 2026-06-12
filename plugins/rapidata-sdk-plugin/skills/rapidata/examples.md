@@ -6,7 +6,7 @@
 from rapidata import RapidataClient
 
 client = RapidataClient()
-audience = client.audience.find_audiences("alignment")[0]
+audience = client.audience.get_audience_by_id("aud_MU1GZYoESyO")
 
 job_def = client.job.create_classification_job_definition(
     name="Image Classification",
@@ -27,7 +27,7 @@ df = results.to_pandas()
 from rapidata import RapidataClient, NoShuffleSetting
 
 client = RapidataClient()
-audience = client.audience.find_audiences("alignment")[0]
+audience = client.audience.get_audience_by_id("aud_MU1GZYoESyO")
 
 job_def = client.job.create_classification_job_definition(
     name="Quality Rating",
@@ -47,7 +47,7 @@ job = audience.assign_job(job_def)
 from rapidata import RapidataClient
 
 client = RapidataClient()
-audience = client.audience.find_audiences("alignment")[0]
+audience = client.audience.get_audience_by_id("aud_MU1GZYoESyO")
 
 job_def = client.job.create_compare_job_definition(
     name="Model Comparison",
@@ -73,7 +73,7 @@ results = job.get_results()
 from rapidata import RapidataClient
 
 client = RapidataClient()
-audience = client.audience.find_audiences("alignment")[0]
+audience = client.audience.get_audience_by_id("aud_MU1GZYoESyO")
 
 job_def = client.job.create_classification_job_definition(
     name="Animal Classification with Quorum",
@@ -95,7 +95,7 @@ results = job.get_results()
 from rapidata import RapidataClient, AllowNeitherBothSetting
 
 client = RapidataClient()
-audience = client.audience.find_audiences("alignment")[0]
+audience = client.audience.get_audience_by_id("aud_MU1GZYoESyO")
 
 job_def = client.job.create_compare_job_definition(
     name="Text Comparison",
@@ -104,6 +104,63 @@ job_def = client.job.create_compare_job_definition(
     data_type="text",
     settings=[AllowNeitherBothSetting()],
 )
+```
+
+## Locate Job
+
+```python
+from rapidata import RapidataClient, Box
+
+client = RapidataClient()
+
+# Simple: use a ready-to-go curated audience
+audience = client.audience.get_audience_by_id("global")
+
+job_def = client.job.create_locate_job_definition(
+    name="Artifact Detection",
+    instruction="Tap on any visual glitches or errors in the image.",
+    datapoints=["img1.jpg", "img2.jpg", "img3.jpg"],
+    responses_per_datapoint=35,
+)
+job_def.preview()
+job = audience.assign_job(job_def)
+job.display_progress_bar()
+results = job.get_results()
+```
+
+Custom audience with locate qualification examples:
+
+```python
+from rapidata import RapidataClient, Box
+
+client = RapidataClient()
+
+audience = client.audience.create_audience(name="Artifact Detection Audience")
+
+EXAMPLES = [
+    ("example1.jpg", [Box(x_min=0.44, y_min=0.42, x_max=0.58, y_max=0.63)]),
+    ("example2.jpg", [Box(x_min=0.07, y_min=0.37, x_max=0.39, y_max=0.71)]),
+    ("example3.jpg", [Box(x_min=0.04, y_min=0.10, x_max=0.31, y_max=0.28)]),
+]
+
+for datapoint, truths in EXAMPLES:
+    audience.add_locate_example(
+        instruction="Tap on any visual glitches or errors in the image.",
+        datapoint=datapoint,
+        truths=truths,
+        explanation="The artifact is within the highlighted region.",
+    )
+
+job_def = client.job.create_locate_job_definition(
+    name="Artifact Detection",
+    instruction="Tap on any visual glitches or errors in the image.",
+    datapoints=["img1.jpg", "img2.jpg", "img3.jpg"],
+    responses_per_datapoint=35,
+)
+job_def.preview()
+job = audience.assign_job(job_def)
+job.display_progress_bar()
+results = job.get_results()
 ```
 
 ## Free-Text Length Constraints (legacy order API)
@@ -394,7 +451,7 @@ from rapidata import RapidataClient
 from rapidata.rapidata_client.exceptions import FailedUploadException
 
 client = RapidataClient()
-audience = client.audience.find_audiences("alignment")[0]
+audience = client.audience.get_audience_by_id("aud_MU1GZYoESyO")
 
 datapoints = ["valid1.jpg", "broken_url", "valid2.jpg", "missing.jpg"]
 

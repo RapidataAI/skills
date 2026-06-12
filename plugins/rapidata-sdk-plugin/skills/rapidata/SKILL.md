@@ -9,7 +9,7 @@ Rapidata connects you with distributed human labelers worldwide for fast, high-q
 
 ## Before you start: check the skill is up to date
 
-This skill is pinned to **Rapidata SDK v3.12.2**. Run this check **once at the start of a Rapidata task** (not on every call) to confirm the user's runtime matches the skill:
+This skill is pinned to **Rapidata SDK v3.13.0**. Run this check **once at the start of a Rapidata task** (not on every call) to confirm the user's runtime matches the skill:
 
 ```bash
 python -c "import rapidata; print(rapidata.__version__)" 2>/dev/null \
@@ -23,7 +23,7 @@ Compare the output to the pinned version above:
      - Re-run the install command to pull the latest: `/install-plugin https://github.com/RapidataAI/skills`, **or**
      - Use the plugin manager: `/plugin` → `rapidata-sdk-plugin` → update.
   2. Tell the user clearly:
-     > ⚠️ The Rapidata skill is pinned to v3.12.2 but v{installed} is installed — the skill docs may be out of date. I've suggested updating the plugin; if the update isn't available yet, I'll proceed with the documented API and flag any surprises.
+     > ⚠️ The Rapidata skill is pinned to v3.13.0 but v{installed} is installed — the skill docs may be out of date. I've suggested updating the plugin; if the update isn't available yet, I'll proceed with the documented API and flag any surprises.
   3. Proceed using the documented API. If you hit an unexpected error (missing attribute, changed signature), stop and tell the user the skill is likely the cause — don't guess at the new API.
 
 - **Installed < pinned** — the user's runtime is older than this skill. Suggest `pip install -U rapidata` so the runtime matches.
@@ -57,15 +57,15 @@ client = RapidataClient(client_id="...", client_secret="...")
 - **MRI/Benchmark**: Compare and rank AI models on leaderboards
 
 **Client entry points:**
-- `client.job` — create job definitions (classification, comparison)
+- `client.job` — create job definitions (classification, comparison, locate)
 - `client.audience` — create and find audiences
 - `client.flow` — continuous ranking flows
 - `client.mri` — model ranking insights / benchmarks
-- `client.order` — legacy order API (still supported; currently the way to run ranking, locate, free-text, select-words, draw jobs)
+- `client.order` — legacy order API (still supported; currently the way to run ranking, free-text, select-words, draw jobs; locate is also available via `client.job`)
 
 ## New API: Job Definitions + Audiences (Recommended)
 
-The new API currently exposes **classification** and **comparison** as job definitions. For ranking, continue to use either the Flow API (recommended for continuous ranking) or the legacy `client.order.create_ranking_order(...)`. For locate / free text / select words / draw, use the legacy order API.
+The new API currently exposes **classification**, **comparison**, and **locate** as job definitions. For ranking, continue to use either the Flow API (recommended for continuous ranking) or the legacy `client.order.create_ranking_order(...)`. For free text / select words / draw, use the legacy order API.
 
 ### Step-by-step workflow
 
@@ -75,7 +75,7 @@ from rapidata import RapidataClient
 client = RapidataClient()
 
 # 1. Get or create an audience
-audience = client.audience.find_audiences("alignment")[0]  # curated
+audience = client.audience.get_audience_by_id("aud_MU1GZYoESyO")  # curated alignment audience
 # or: audience = client.audience.create_audience(name="My Evaluators")
 
 # 2. Create a job definition
@@ -165,6 +165,38 @@ order.display_progress_bar()
 results = order.get_results()
 ```
 
+### Locate
+
+Ask labelers to tap on the points in a datapoint that match your instruction. Results are the set of tapped coordinates per datapoint. No `answer_options`, `a_b_names`, `data_type`, `confidence_threshold`, or `quorum_threshold`.
+
+```python
+from rapidata import Box
+
+job_def = client.job.create_locate_job_definition(
+    name="Artifact Detection",
+    instruction="Tap on any visual glitches or errors in the image.",
+    datapoints=["img1.jpg", "img2.jpg"],
+    responses_per_datapoint=35,
+    contexts=["Optional text context"],
+    media_contexts=[["optional_reference.jpg"]],
+    settings=[LocateMaxPointsSetting(5)],
+    private_metadata=[{"id": "abc"}],
+)
+```
+
+For locate qualification examples, pass `truths` as a `list[Box]` (import `Box` from `rapidata`); coordinates are image ratios (0.0–1.0):
+
+```python
+audience.add_locate_example(
+    instruction="Tap on any visual glitches or errors in the image.",
+    datapoint="example_with_artifact.jpg",
+    truths=[Box(x_min=0.44, y_min=0.42, x_max=0.58, y_max=0.63)],
+    context="Optional context",
+    explanation="The artifact is in the highlighted region.",  # Shown to labelers who answer incorrectly
+    settings=[...],  # Optional: match job settings so labelers qualify on the same UI
+)
+```
+
 ### Custom Audiences
 
 Create an audience trained on your specific task. Minimum 3 examples required before recruiting starts.
@@ -195,6 +227,16 @@ audience.add_compare_example(
     data_type="media",
     explanation="The first image clearly shows a cat sitting on a chair as described.",  # Shown to labelers who answer incorrectly
     settings=[AllowNeitherBothSetting()],  # Optional: match job settings so labelers qualify on the same UI
+)
+
+# Add locate examples (requires: from rapidata import Box)
+audience.add_locate_example(
+    instruction="Tap on any visual glitches or errors in the image.",
+    datapoint="example_with_artifact.jpg",
+    truths=[Box(x_min=0.44, y_min=0.42, x_max=0.58, y_max=0.63)],
+    context="Optional context",
+    explanation="The artifact is in the highlighted region.",  # Shown to labelers who answer incorrectly
+    settings=[...],  # Optional: match job settings so labelers qualify on the same UI
 )
 
 # Inspect the examples currently on the audience
@@ -240,7 +282,7 @@ results = order.get_results()
 
 **Order methods:** `run(after=None)`, `pause()`, `unpause()`, `delete()`, `get_status()`, `display_progress_bar()`, `get_results(preliminary_results=False)`, `preview()`, `view()`. `run(after=...)` accepts another `RapidataOrder` (or its id) so the new order only starts after the prior one finishes.
 
-**Migration to new API:** Replace `create_classification_order()` / `create_compare_order()` with `create_classification_job_definition()` / `create_compare_job_definition()`, replace validation sets with audience examples, use `audience.assign_job()` instead of `.run()`. Other task types are only available via the order API for now.
+**Migration to new API:** Replace `create_classification_order()` / `create_compare_order()` with `create_classification_job_definition()` / `create_compare_job_definition()`, replace validation sets with audience examples, use `audience.assign_job()` instead of `.run()`. Locate is now also available via `create_locate_job_definition()`; free text, select words, and draw are only available via the order API for now.
 
 ## Settings
 
