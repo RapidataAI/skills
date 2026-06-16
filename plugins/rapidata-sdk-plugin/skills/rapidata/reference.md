@@ -2,7 +2,7 @@
 
 ## Job Definition Parameters
 
-The new job-definition API exposes **classification**, **comparison**, and **locate** publicly. Ranking / free-text / select-words / draw are currently available through the legacy order API (see the "Legacy Order API" section below).
+The new job-definition API exposes **classification**, **comparison**, **locate**, **draw**, **select words**, **free text**, and **ranking** publicly.
 
 ### Common parameters (classification & comparison)
 
@@ -50,14 +50,64 @@ job_definition = client.job.create_locate_job_definition(
 
 For locate audience examples, use `audience.add_locate_example(instruction, datapoint, truths, context=None, media_context=None, explanation=None, settings=None)` where `truths` is a `list[Box]` (import `Box` from `rapidata`); coordinates are image ratios (0.0–1.0).
 
-### Ranking (via `client.order.create_ranking_order` or `client.flow.create_ranking_flow`)
+### Draw-specific
+
+Draw has no job-specific parameters — only the core parameters apply. `data_type`, `answer_options`, `a_b_names`, `confidence_threshold`, and `quorum_threshold` are not available for draw jobs. `datapoints` is `list[str]`.
+
+```python
+job_definition = client.job.create_draw_job_definition(
+    name="Object Marking",
+    instruction="Color in all the blue books",
+    datapoints=["image1.jpg", "image2.jpg"],
+    responses_per_datapoint=35,
+)
+```
+
+For draw audience examples, use `audience.add_draw_example(instruction, datapoint, truths, explanation=None, settings=None)` where `truths` is a `list[Box]` (import `Box` from `rapidata`); coordinates are image ratios (0.0–1.0).
+
+### Select Words-specific
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `datapoints` | list[list[str]] | Groups: `[["img1","img2","img3"], ...]` |
+| `sentences` | list[str] | One sentence per datapoint, split by spaces for labelers to select words from (must have same length as `datapoints`) |
+
+`contexts`, `media_contexts`, `data_type`, `answer_options`, `a_b_names`, `confidence_threshold`, and `quorum_threshold` are not available for select words jobs.
+
+```python
+job_definition = client.job.create_select_words_job_definition(
+    name="Prompt Alignment",
+    instruction="Select the words that are not depicted in the image.",
+    datapoints=["image1.jpg", "image2.jpg"],
+    sentences=["A cat on a red couch [No_mistakes]", "A blue car in the rain [No_mistakes]"],
+    responses_per_datapoint=15,
+)
+```
+
+For select words audience examples, use `audience.add_select_words_example(instruction, datapoint, sentence, truths, explanation=None, settings=None)` where `truths` is a `list[int]` of 0-based word indices to select.
+
+### Free Text-specific
+
+Free Text has no job-specific parameters — only the core parameters apply. `answer_options`, `a_b_names`, `confidence_threshold`, and `quorum_threshold` are not available. Note: free text answers cannot be graded against a ground truth; audiences cannot be trained with free text qualification examples.
+
+```python
+job_definition = client.job.create_free_text_job_definition(
+    name="Prompt Collection",
+    instruction="What would you like to ask an AI?",
+    datapoints=["image1.jpg"],
+    responses_per_datapoint=15,
+)
+```
+
+### Ranking (via `client.job.create_ranking_job_definition`, `client.order.create_ranking_order`, or `client.flow.create_ranking_flow`)
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `datapoints` | list[list[str]] | Groups: `[["img1","img2","img3"], ...]`; each inner list is one independent ranking set |
 | `comparison_budget_per_ranking` | int | Total comparisons per ranking group |
-| `responses_per_comparison` | int | Responses per individual comparison (default 1) |
+| `responses_per_comparison` | int | Responses per individual comparison (default 1); replaces `responses_per_datapoint` for ranking |
 | `random_comparisons_ratio` | float | Ratio of random vs targeted comparisons (0-1, default 0.5) |
+
+`responses_per_datapoint`, `answer_options`, `a_b_names`, `confidence_threshold`, and `quorum_threshold` are not available for ranking jobs.
 
 ## Demographic Filters
 

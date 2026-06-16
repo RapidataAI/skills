@@ -163,6 +163,113 @@ job.display_progress_bar()
 results = job.get_results()
 ```
 
+## Draw Job
+
+```python
+from rapidata import RapidataClient, Box
+
+client = RapidataClient()
+
+# Simple: use a ready-to-go curated audience
+audience = client.audience.get_audience_by_id("global")
+
+job_def = client.job.create_draw_job_definition(
+    name="Artifact Drawing",
+    instruction="Color in any visual glitches or errors in the image.",
+    datapoints=["img1.jpg", "img2.jpg", "img3.jpg"],
+    responses_per_datapoint=35,
+)
+job_def.preview()
+job = audience.assign_job(job_def)
+job.display_progress_bar()
+results = job.get_results()
+```
+
+Custom audience with draw qualification examples:
+
+```python
+from rapidata import RapidataClient, Box
+
+client = RapidataClient()
+
+audience = client.audience.create_audience(name="Artifact Drawing Audience")
+
+EXAMPLES = [
+    ("example1.jpg", [Box(x_min=0.44, y_min=0.42, x_max=0.58, y_max=0.63)]),
+    ("example2.jpg", [Box(x_min=0.07, y_min=0.37, x_max=0.39, y_max=0.71)]),
+    ("example3.jpg", [Box(x_min=0.04, y_min=0.10, x_max=0.31, y_max=0.28)]),
+]
+
+for datapoint, truths in EXAMPLES:
+    audience.add_draw_example(
+        instruction="Color in any visual glitches or errors in the image.",
+        datapoint=datapoint,
+        truths=truths,
+        explanation="The artifact is within the highlighted region.",
+    )
+
+job_def = client.job.create_draw_job_definition(
+    name="Artifact Drawing",
+    instruction="Color in any visual glitches or errors in the image.",
+    datapoints=["img1.jpg", "img2.jpg", "img3.jpg"],
+    responses_per_datapoint=35,
+)
+job_def.preview()
+job = audience.assign_job(job_def)
+job.display_progress_bar()
+results = job.get_results()
+```
+
+## Select Words Job
+
+```python
+from rapidata import RapidataClient
+
+IMAGES = ["img1.jpg", "img2.jpg", "img3.jpg", "img4.jpg"]
+PROMPTS = [
+    "The black camera was next to the white tripod.",
+    "Four cars on the street.",
+    "Car is bigger than the airplane.",
+    "One cat and two dogs sitting on the grass.",
+]
+SENTENCES = [p + " [No_mistakes]" for p in PROMPTS]
+
+client = RapidataClient()
+audience = client.audience.get_audience_by_id("global")
+
+job_def = client.job.create_select_words_job_definition(
+    name="Image-Text Alignment",
+    instruction="The image is based on the text below. Select mistakes, i.e., words that are not aligned with the image.",
+    datapoints=IMAGES,
+    sentences=SENTENCES,
+    responses_per_datapoint=15,
+)
+job_def.preview()
+job = audience.assign_job(job_def)
+job.display_progress_bar()
+results = job.get_results()
+```
+
+## Free Text Job
+
+```python
+from rapidata import RapidataClient
+
+client = RapidataClient()
+audience = client.audience.get_audience_by_id("global")
+
+job_def = client.job.create_free_text_job_definition(
+    name="Prompt Collection",
+    instruction="What would you like to ask an AI? Please spell out the question.",
+    datapoints=["image.jpg"],
+    responses_per_datapoint=15,
+)
+job_def.preview()
+job = audience.assign_job(job_def)
+job.display_progress_bar()
+results = job.get_results()
+```
+
 ## Free-Text Length Constraints (legacy order API)
 
 Use length constraints sparingly. Free-text responses are already filtered by a built-in reasonableness check, so these settings are usually unnecessary and will reject otherwise valid answers. Only set them when the question genuinely demands a specific length.
@@ -307,6 +414,27 @@ order = client.order.create_classification_order(
         DeviceFilter(device_types=[DeviceType.MOBILE]),
     ],
 ).run()
+```
+
+## Ranking via Job Definition API
+
+```python
+from rapidata import RapidataClient
+
+client = RapidataClient()
+audience = client.audience.get_audience_by_id("global")
+
+job_def = client.job.create_ranking_job_definition(
+    name="Image Quality Ranking",
+    instruction="Which image looks better?",
+    datapoints=[["img1.jpg", "img2.jpg", "img3.jpg", "img4.jpg"]],  # outer list = independent rankings
+    comparison_budget_per_ranking=50,
+    random_comparisons_ratio=0.5,
+)
+job_def.preview()
+job = audience.assign_job(job_def)
+job.display_progress_bar()
+results = job.get_results()
 ```
 
 ## Ranking via Legacy Order API

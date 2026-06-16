@@ -9,7 +9,7 @@ Rapidata connects you with distributed human labelers worldwide for fast, high-q
 
 ## Before you start: check the skill is up to date
 
-This skill is pinned to **Rapidata SDK v3.13.0**. Run this check **once at the start of a Rapidata task** (not on every call) to confirm the user's runtime matches the skill:
+This skill is pinned to **Rapidata SDK v3.14.0**. Run this check **once at the start of a Rapidata task** (not on every call) to confirm the user's runtime matches the skill:
 
 ```bash
 python -c "import rapidata; print(rapidata.__version__)" 2>/dev/null \
@@ -23,7 +23,7 @@ Compare the output to the pinned version above:
      - Re-run the install command to pull the latest: `/install-plugin https://github.com/RapidataAI/skills`, **or**
      - Use the plugin manager: `/plugin` → `rapidata-sdk-plugin` → update.
   2. Tell the user clearly:
-     > ⚠️ The Rapidata skill is pinned to v3.13.0 but v{installed} is installed — the skill docs may be out of date. I've suggested updating the plugin; if the update isn't available yet, I'll proceed with the documented API and flag any surprises.
+     > ⚠️ The Rapidata skill is pinned to v3.14.0 but v{installed} is installed — the skill docs may be out of date. I've suggested updating the plugin; if the update isn't available yet, I'll proceed with the documented API and flag any surprises.
   3. Proceed using the documented API. If you hit an unexpected error (missing attribute, changed signature), stop and tell the user the skill is likely the cause — don't guess at the new API.
 
 - **Installed < pinned** — the user's runtime is older than this skill. Suggest `pip install -U rapidata` so the runtime matches.
@@ -57,15 +57,15 @@ client = RapidataClient(client_id="...", client_secret="...")
 - **MRI/Benchmark**: Compare and rank AI models on leaderboards
 
 **Client entry points:**
-- `client.job` — create job definitions (classification, comparison, locate)
+- `client.job` — create job definitions (classification, comparison, locate, draw, select words, free text, ranking)
 - `client.audience` — create and find audiences
 - `client.flow` — continuous ranking flows
 - `client.mri` — model ranking insights / benchmarks
-- `client.order` — legacy order API (still supported; currently the way to run ranking, free-text, select-words, draw jobs; locate is also available via `client.job`)
+- `client.order` — legacy order API (still supported)
 
 ## New API: Job Definitions + Audiences (Recommended)
 
-The new API currently exposes **classification**, **comparison**, and **locate** as job definitions. For ranking, continue to use either the Flow API (recommended for continuous ranking) or the legacy `client.order.create_ranking_order(...)`. For free text / select words / draw, use the legacy order API.
+The new API currently exposes **classification**, **comparison**, **locate**, **draw**, **select words**, **free text**, and **ranking** as job definitions. For continuous ranking without full job setup, the Flow API is still recommended.
 
 ### Step-by-step workflow
 
@@ -146,10 +146,24 @@ job_def = client.job.create_compare_job_definition(
 
 ### Ranking
 
-Ranking is available via the **legacy order API** or via **continuous ranking flows** (see below). The new job-definition API does not currently expose a public ranking constructor.
+Ranking is available via the **new job definition API**, the **legacy order API**, or via **continuous ranking flows** (see below).
 
 ```python
-# Legacy order API for ranking
+# New job definition API for ranking
+job_def = client.job.create_ranking_job_definition(
+    name="Image Quality Ranking",
+    instruction="Which image looks better?",
+    datapoints=[["img1.jpg", "img2.jpg", "img3.jpg"]],  # outer list = independent rankings
+    comparison_budget_per_ranking=50,
+    responses_per_comparison=1,
+    random_comparisons_ratio=0.5,
+    contexts=["Optional context"],
+)
+job = audience.assign_job(job_def)
+job.display_progress_bar()
+results = job.get_results()
+
+# Or use the legacy order API
 order = client.order.create_ranking_order(
     name="Image Quality Ranking",
     instruction="Rank these images by quality",
@@ -197,6 +211,76 @@ audience.add_locate_example(
 )
 ```
 
+### Draw
+
+Ask labelers to draw (color in) regions of an image that match your instruction. Results are the set of drawn lines per datapoint. No `answer_options`, `a_b_names`, `data_type`, `confidence_threshold`, or `quorum_threshold`.
+
+```python
+job_def = client.job.create_draw_job_definition(
+    name="Artifact Drawing",
+    instruction="Color in any visual glitches or errors in the image.",
+    datapoints=["img1.jpg", "img2.jpg"],
+    responses_per_datapoint=35,
+    contexts=["Optional text context"],
+    media_contexts=[["optional_reference.jpg"]],
+    private_metadata=[{"id": "abc"}],
+)
+```
+
+For draw qualification examples, pass `truths` as a `list[Box]` (import `Box` from `rapidata`); coordinates are image ratios (0.0–1.0):
+
+```python
+audience.add_draw_example(
+    instruction="Color in any visual glitches or errors in the image.",
+    datapoint="example_with_artifact.jpg",
+    truths=[Box(x_min=0.44, y_min=0.42, x_max=0.58, y_max=0.63)],
+    explanation="The artifact is within the highlighted region.",  # Shown to labelers who answer incorrectly
+    settings=[...],  # Optional: match job settings so labelers qualify on the same UI
+)
+```
+
+### Select Words
+
+Ask labelers to select the words from a sentence that match your instruction (e.g., words not depicted in an image). Each datapoint is paired with a `sentence` split by spaces. No `contexts`, `media_contexts`, `data_type`, `answer_options`, `a_b_names`, `confidence_threshold`, or `quorum_threshold`.
+
+```python
+job_def = client.job.create_select_words_job_definition(
+    name="Image-Text Alignment",
+    instruction="Select the words not correctly depicted in the image.",
+    datapoints=["img1.jpg", "img2.jpg"],
+    sentences=["A cat on a red couch [No_mistakes]", "A blue car in the rain [No_mistakes]"],
+    responses_per_datapoint=15,
+    private_metadata=[{"id": "abc"}],
+)
+```
+
+For select words qualification examples, pass `truths` as a `list[int]` of 0-based word indices to select:
+
+```python
+audience.add_select_words_example(
+    instruction="Select the words not correctly depicted in the image.",
+    datapoint="image.jpg",
+    sentence="a white cat on a sunny beach [No_mistakes]",
+    truths=[1],  # 0-based word indices; e.g. index 1 = "white" if the cat is black
+    explanation="The cat in the image is black, not white.",  # Shown to labelers who answer incorrectly
+    settings=[...],  # Optional: match job settings so labelers qualify on the same UI
+)
+```
+
+### Free Text
+
+Ask labelers to answer your instruction with free-form text. No `answer_options`, `a_b_names`, `confidence_threshold`, or `quorum_threshold`. Note: free text answers cannot be graded against a ground truth, so audiences cannot be trained with free text qualification examples.
+
+```python
+job_def = client.job.create_free_text_job_definition(
+    name="Prompt Collection",
+    instruction="What would you like to ask an AI? Please spell out the question.",
+    datapoints=["image.jpg"],
+    responses_per_datapoint=15,
+    contexts=["Optional text context"],
+)
+```
+
 ### Custom Audiences
 
 Create an audience trained on your specific task. Minimum 3 examples required before recruiting starts.
@@ -236,6 +320,25 @@ audience.add_locate_example(
     truths=[Box(x_min=0.44, y_min=0.42, x_max=0.58, y_max=0.63)],
     context="Optional context",
     explanation="The artifact is in the highlighted region.",  # Shown to labelers who answer incorrectly
+    settings=[...],  # Optional: match job settings so labelers qualify on the same UI
+)
+
+# Add draw examples (requires: from rapidata import Box)
+audience.add_draw_example(
+    instruction="Color in any visual glitches or errors in the image.",
+    datapoint="example_with_artifact.jpg",
+    truths=[Box(x_min=0.44, y_min=0.42, x_max=0.58, y_max=0.63)],
+    explanation="The artifact is within the highlighted region.",  # Shown to labelers who answer incorrectly
+    settings=[...],  # Optional: match job settings so labelers qualify on the same UI
+)
+
+# Add select words examples
+audience.add_select_words_example(
+    instruction="Select the words not correctly depicted in the image.",
+    datapoint="image.jpg",
+    sentence="a white cat on a sunny beach [No_mistakes]",
+    truths=[1],  # 0-based word indices to select
+    explanation="The cat in the image is black, not white.",  # Shown to labelers who answer incorrectly
     settings=[...],  # Optional: match job settings so labelers qualify on the same UI
 )
 
@@ -282,7 +385,7 @@ results = order.get_results()
 
 **Order methods:** `run(after=None)`, `pause()`, `unpause()`, `delete()`, `get_status()`, `display_progress_bar()`, `get_results(preliminary_results=False)`, `preview()`, `view()`. `run(after=...)` accepts another `RapidataOrder` (or its id) so the new order only starts after the prior one finishes.
 
-**Migration to new API:** Replace `create_classification_order()` / `create_compare_order()` with `create_classification_job_definition()` / `create_compare_job_definition()`, replace validation sets with audience examples, use `audience.assign_job()` instead of `.run()`. Locate is now also available via `create_locate_job_definition()`; free text, select words, and draw are only available via the order API for now.
+**Migration to new API:** Replace `create_classification_order()` / `create_compare_order()` with `create_classification_job_definition()` / `create_compare_job_definition()`, replace validation sets with audience examples, use `audience.assign_job()` instead of `.run()`. Locate, draw, select words, free text, and ranking are now also available via the new job definition API.
 
 ## Settings
 
