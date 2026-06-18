@@ -509,7 +509,9 @@ participant.set_faucet(
     additional_inputs={"aspect_ratio": "16:9"},  # Optional: extra model inputs (not prompt/num_outputs)
 )
 participant.delete_faucet()      # Remove the faucet from the participant
+participant.disable()             # Exclude from evaluation and standings (reversible)
 participant.enable()              # Re-enable a previously disabled participant
+participant.rename("New Name")    # Rename the participant
 participant.get_elo()             # Aggregated Elo across all leaderboards (None if not yet computed)
 participant.delete()              # Delete participant and its uploaded media (cannot be undone)
 
