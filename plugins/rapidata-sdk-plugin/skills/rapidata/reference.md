@@ -510,6 +510,8 @@ participant.set_faucet(
 )
 participant.delete_faucet()      # Remove the faucet from the participant
 participant.enable()              # Re-enable a previously disabled participant
+participant.get_elo()             # Aggregated Elo across all leaderboards (None if not yet computed)
+participant.delete()              # Delete participant and its uploaded media (cannot be undone)
 
 # Sample generation — trigger a batch generation run across participants with faucets
 sample_gen = benchmark.generate_samples(
