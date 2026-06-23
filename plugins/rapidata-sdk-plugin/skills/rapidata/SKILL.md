@@ -9,7 +9,7 @@ Rapidata connects you with distributed human labelers worldwide for fast, high-q
 
 ## Before you start: check the skill is up to date
 
-This skill is pinned to **Rapidata SDK v3.14.4**. Run this check **once at the start of a Rapidata task** (not on every call) to confirm the user's runtime matches the skill:
+This skill is pinned to **Rapidata SDK v3.15.0**. Run this check **once at the start of a Rapidata task** (not on every call) to confirm the user's runtime matches the skill:
 
 ```bash
 python -c "import rapidata; print(rapidata.__version__)" 2>/dev/null \
@@ -23,7 +23,7 @@ Compare the output to the pinned version above:
      - Re-run the install command to pull the latest: `/install-plugin https://github.com/RapidataAI/skills`, **or**
      - Use the plugin manager: `/plugin` → `rapidata-sdk-plugin` → update.
   2. Tell the user clearly:
-     > ⚠️ The Rapidata skill is pinned to v3.14.4 but v{installed} is installed — the skill docs may be out of date. I've suggested updating the plugin; if the update isn't available yet, I'll proceed with the documented API and flag any surprises.
+     > ⚠️ The Rapidata skill is pinned to v3.15.0 but v{installed} is installed — the skill docs may be out of date. I've suggested updating the plugin; if the update isn't available yet, I'll proceed with the documented API and flag any surprises.
   3. Proceed using the documented API. If you hit an unexpected error (missing attribute, changed signature), stop and tell the user the skill is likely the cause — don't guess at the new API.
 
 - **Installed < pinned** — the user's runtime is older than this skill. Suggest `pip install -U rapidata` so the runtime matches.
@@ -62,6 +62,7 @@ client = RapidataClient(client_id="...", client_secret="...")
 - `client.flow` — continuous ranking flows
 - `client.mri` — model ranking insights / benchmarks
 - `client.order` — legacy order API (still supported)
+- `client.context` — shorten over-long datapoint contexts against a specific question
 
 ## New API: Job Definitions + Audiences (Recommended)
 
@@ -365,6 +366,44 @@ examples_df = audience.get_examples(amount=10, page=1)
 - `job.view()` — open the job's details page in the browser
 - `job.delete()` — delete a running job
 
+## Context Management
+
+Datapoint contexts have a **400-character maximum**; the backend rejects longer ones and a warning is logged at job/order creation time.
+
+Set `rapidata_config.upload.autoShortenContext = True` to have over-long contexts automatically shortened against the task instruction before upload:
+
+```python
+from rapidata import rapidata_config
+
+rapidata_config.upload.autoShortenContext = True
+
+job_def = client.job.create_classification_job_definition(
+    name="Outfit check",
+    instruction="Does the main character wear the right clothing?",
+    answer_options=["Yes", "No"],
+    datapoints=["scene.jpg"],
+    contexts=["<a very long, detailed scene description ...>"],
+)
+```
+
+Shorten contexts directly without creating a job via `client.context`:
+
+```python
+# Single context
+short = client.context.shorten_context(
+    context="<a very long description ...>",
+    question="Does the main character wear the right clothing?",
+)
+
+# Batch: (context, question) pairs in one request
+shortened = client.context.shorten_contexts([
+    (context_a, question_a),
+    (context_b, question_b),
+])
+```
+
+`ContextManager` is also importable directly: `from rapidata import ContextManager`.
+
 ## Legacy Order API
 
 Still fully supported. Creates and runs tasks in a single step (no separate audience/job definition). Available task types: `create_classification_order`, `create_compare_order`, `create_ranking_order`, `create_free_text_order`, `create_select_words_order`, `create_locate_order`, `create_draw_order`.
@@ -438,6 +477,7 @@ settings=[CustomSetting(key="my_flag", value="on")]              # Rapid-level f
 7. **Early stopping only for unambiguous tasks** — both strategies work best when there's a clear correct answer
 8. **Failed uploads don't block job creation** — a `FailedUploadException` is raised but the job is still created with successful datapoints; access the partial object via `e.job_definition` or `e.order`
 9. **QR code printed on job/order creation** — when a job definition is created or an order enters preview, a terminal QR code linking to the campaign preview is printed automatically so you can open it on a phone; suppress it with `rapidata_config.logging.silent_mode = True`
+10. **Context length limit is 400 characters** — the backend rejects contexts longer than 400 characters; a warning is logged at creation time. Set `rapidata_config.upload.autoShortenContext = True` to have over-long contexts automatically shortened against the task instruction before upload, or use `client.context.shorten_context()` / `client.context.shorten_contexts()` to shorten manually.
 
 ## Ranking Flows (Continuous Ranking)
 

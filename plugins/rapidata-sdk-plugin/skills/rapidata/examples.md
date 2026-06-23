@@ -616,6 +616,39 @@ job_def.update_dataset(
 )
 ```
 
+## Context Shortening
+
+Datapoint contexts are limited to 400 characters. Use `client.context` to shorten them manually, or enable auto-shortening at upload time.
+
+```python
+from rapidata import RapidataClient, rapidata_config
+
+client = RapidataClient()
+
+# Shorten a single context for a specific question
+short = client.context.shorten_context(
+    context="<a very long, detailed scene description ...>",
+    question="Does the main character wear the right clothing?",
+)
+
+# Shorten a batch of (context, question) pairs in one request
+shortened = client.context.shorten_contexts([
+    ("Long scene description A ...", "What is the dominant color?"),
+    ("Long scene description B ...", "How many people are visible?"),
+])
+
+# Or enable auto-shortening globally — applied at job / order creation time
+rapidata_config.upload.autoShortenContext = True
+
+job_def = client.job.create_classification_job_definition(
+    name="Outfit check",
+    instruction="Does the main character wear the right clothing?",
+    answer_options=["Yes", "No"],
+    datapoints=["scene.jpg"],
+    contexts=["<a very long, detailed scene description ...>"],
+)
+```
+
 ## Legacy Order API
 
 ```python

@@ -13,7 +13,7 @@ The new job-definition API exposes **classification**, **comparison**, **locate*
 | `datapoints` | list | Data to label (URLs or local paths) |
 | `data_type` | `"media"` \| `"text"` | `"media"` (default, covers image/video/audio) or `"text"` |
 | `responses_per_datapoint` | int | Responses per item (default 10) |
-| `contexts` | list[str] \| None | Text context per datapoint |
+| `contexts` | list[str] \| None | Text context per datapoint (max 400 characters each; the backend rejects longer values — set `rapidata_config.upload.autoShortenContext = True` to auto-shorten, or use `client.context` to shorten manually) |
 | `media_contexts` | list[list[str]] \| None | Reference images per datapoint; each entry is a list of image URLs/paths (one inner list per datapoint) |
 | `confidence_threshold` | float \| None | Confidence-based early stopping threshold (0-1); cannot combine with `quorum_threshold` |
 | `quorum_threshold` | int \| None | Quorum-based early stopping: stop when this many responses agree; cannot combine with `confidence_threshold` |
@@ -580,6 +580,7 @@ rapidata_config.upload.compression = CompressionConfig(
     quality=70,        # WebP quality 1–100
     max_dimension=1024, # Max width or height in pixels
 )  # Optional: per-upload image compression override (None = server default)
+rapidata_config.upload.autoShortenContext = False  # When True, auto-shorten contexts > 400 chars for the task instruction before upload
 
 # Client-level maintenance
 client.clear_all_caches()
@@ -601,6 +602,43 @@ Applies to single-asset uploads (`/asset/file` and `/asset/url`) and batched URL
 All config fields support environment-variable overrides with the `RAPIDATA_` prefix (e.g., `RAPIDATA_maxWorkers=10`, `RAPIDATA_DISABLE_OTLP=1`).
 
 **Client authentication** is also resolved from environment variables: `RAPIDATA_CLIENT_ID` and `RAPIDATA_CLIENT_SECRET` are used before falling back to `~/.config/rapidata/credentials.json` and browser login. `RAPIDATA_ENVIRONMENT` overrides the API endpoint (default: `rapidata.ai`). Empty values are treated as unset and fall through to the next resolution layer.
+
+## Context Management
+
+Datapoint contexts have a backend maximum of **400 characters** (`MAX_CONTEXT_LENGTH`). The backend rejects longer values; a warning is logged at job/order creation time.
+
+`ContextManager` is importable from the top-level `rapidata` package and is exposed as `client.context` on every `RapidataClient` instance.
+
+### `client.context.shorten_context(context, question) → str`
+
+Shorten a single context for the given question. Results are cached server-side.
+
+### `client.context.shorten_contexts(pairs) → list[str]`
+
+Shorten a batch of `(context, question)` pairs in one request. Returns shortened contexts in the same order as `pairs`.
+
+```python
+# Single context
+short = client.context.shorten_context(
+    context="<a very long description ...>",
+    question="Does the main character wear the right clothing?",
+)
+
+# Batch
+shortened = client.context.shorten_contexts([
+    (context_a, question_a),
+    (context_b, question_b),
+])
+```
+
+### Automatic shortening at job/order creation
+
+Set `rapidata_config.upload.autoShortenContext = True` (default `False`) to have any context exceeding 400 characters automatically shortened against the task instruction before upload. When no instruction is available, the setting is ignored and a warning is logged instead.
+
+```python
+from rapidata import rapidata_config
+rapidata_config.upload.autoShortenContext = True
+```
 
 ## Human Prompting Best Practices
 
