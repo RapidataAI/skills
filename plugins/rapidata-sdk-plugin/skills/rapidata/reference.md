@@ -406,8 +406,12 @@ flow_item = flow.create_new_flow_batch(
 
 # Get results — flow items return FlowItemResult, NOT RapidataResults
 result = flow_item.get_results()      # Blocks until completed/failed/stopped/incomplete
-# result.datapoints: dict[str, int]   # asset → ELO
-# result.total_votes: int
+# result.datapoints: dict[str, int]   # asset → Bradley-Terry strength estimate on Elo-scale (default start 1200);
+#                                     # keyed by source URL when provided, otherwise by original filename
+# result.total_votes: int             # total pairwise comparisons collected across all items
+
+# Items sorted from best to worst
+ranked = sorted(result.datapoints.items(), key=lambda item: item[1], reverse=True)
 
 status = flow_item.get_status()       # Non-blocking check
 matrix = flow_item.get_win_loss_matrix()  # Pandas DataFrame (blocks until completed)
@@ -450,6 +454,7 @@ benchmark = client.mri.create_new_benchmark(
     # identifiers=[...],        # Optional: stable ids for each prompt
     # prompt_assets=[...],      # Optional: reference media for each prompt
     # tags=[...],               # Optional: tags applied to the benchmark
+    # description=None,         # Optional: plain-text credit for the benchmark (max 2000 characters)
 )
 
 # Add prompts later if needed (one or many, matched up by index)
@@ -472,6 +477,7 @@ leaderboard = benchmark.create_leaderboard(
     # audience_id="...",                 # Optional: id string, RapidataAudience, or RapidataFilteredAudience
     # settings=[...],
     # vote_aggregation="AllVotes",       # "AllVotes" (default) or "MajorityVote" — how matchup votes are aggregated
+    # benchmarkDescription="...",        # Optional: description for a newly created benchmark (max 2000 chars; ignored if benchmark already exists)
 )
 
 # Evaluate a model (creates participant, uploads media, and submits in one step)
@@ -533,6 +539,7 @@ for p in benchmark.participants:
 # Prompts — original language and English translation (aligned by index)
 print(benchmark.prompts)          # As originally provided
 print(benchmark.english_prompts)  # Server-side English translations, aligned by index
+print(benchmark.description)      # Optional plain-text credit (None if not set)
 
 # Get results
 standings = leaderboard.get_standings()                    # Pandas DataFrame for one leaderboard

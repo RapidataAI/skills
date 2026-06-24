@@ -9,7 +9,7 @@ Rapidata connects you with distributed human labelers worldwide for fast, high-q
 
 ## Before you start: check the skill is up to date
 
-This skill is pinned to **Rapidata SDK v3.15.0**. Run this check **once at the start of a Rapidata task** (not on every call) to confirm the user's runtime matches the skill:
+This skill is pinned to **Rapidata SDK v3.15.1**. Run this check **once at the start of a Rapidata task** (not on every call) to confirm the user's runtime matches the skill:
 
 ```bash
 python -c "import rapidata; print(rapidata.__version__)" 2>/dev/null \
@@ -23,7 +23,7 @@ Compare the output to the pinned version above:
      - Re-run the install command to pull the latest: `/install-plugin https://github.com/RapidataAI/skills`, **or**
      - Use the plugin manager: `/plugin` → `rapidata-sdk-plugin` → update.
   2. Tell the user clearly:
-     > ⚠️ The Rapidata skill is pinned to v3.15.0 but v{installed} is installed — the skill docs may be out of date. I've suggested updating the plugin; if the update isn't available yet, I'll proceed with the documented API and flag any surprises.
+     > ⚠️ The Rapidata skill is pinned to v3.15.1 but v{installed} is installed — the skill docs may be out of date. I've suggested updating the plugin; if the update isn't available yet, I'll proceed with the documented API and flag any surprises.
   3. Proceed using the documented API. If you hit an unexpected error (missing attribute, changed signature), stop and tell the user the skill is likely the cause — don't guess at the new API.
 
 - **Installed < pinned** — the user's runtime is older than this skill. Suggest `pip install -U rapidata` so the runtime matches.
@@ -540,6 +540,7 @@ benchmark = client.mri.create_new_benchmark(
     # identifiers=[...],        # Optional: stable ids for each prompt
     # prompt_assets=[...],      # Optional: reference media for each prompt
     # tags=[...],               # Optional: tags applied to the benchmark
+    # description=None,         # Optional: plain-text credit for the benchmark (max 2000 characters)
 )
 
 # Add prompts later if needed (one or many, matched up by index)
@@ -562,6 +563,7 @@ leaderboard = benchmark.create_leaderboard(
     # audience_id="...",                 # Optional: id string, RapidataAudience, or RapidataFilteredAudience
     # settings=[...],
     # vote_aggregation="AllVotes",       # "AllVotes" (default) or "MajorityVote" — how matchup votes are aggregated
+    # benchmarkDescription="...",        # Optional: description for a newly created benchmark (max 2000 chars; ignored if benchmark already exists)
 )
 
 # Evaluate a model (creates participant, uploads media, and submits in one step)
@@ -623,6 +625,7 @@ for p in benchmark.participants:
 # Prompts — original language and English translation (aligned by index)
 print(benchmark.prompts)          # As originally provided
 print(benchmark.english_prompts)  # Server-side English translations, aligned by index
+print(benchmark.description)      # Optional plain-text credit (None if not set)
 
 # Get results
 standings = leaderboard.get_standings()                    # Pandas DataFrame for one leaderboard

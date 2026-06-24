@@ -487,6 +487,9 @@ result1 = batch1.get_results()               # Blocks until complete
 matrix1 = batch1.get_win_loss_matrix()       # Pandas DataFrame
 print(result1.datapoints, result1.total_votes)
 
+# Items sorted from best to worst (scores are Elo-style Bradley-Terry estimates)
+ranked = sorted(result1.datapoints.items(), key=lambda item: item[1], reverse=True)
+
 # Later, submit more batches to the same flow
 batch2 = flow.create_new_flow_batch(
     datapoints=["gen4.jpg", "gen5.jpg", "gen6.jpg"],
