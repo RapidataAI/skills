@@ -564,6 +564,66 @@ benchmarks = client.mri.find_benchmarks(name="AI Art", amount=10)
 benchmark = client.mri.get_benchmark_by_id("benchmark_id")
 ```
 
+## Signals (Scheduled Labeling)
+
+A signal runs a job definition against an audience on a repeating schedule. Each firing creates one `RapidataJob`.
+
+### `client.signals.create_signal`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `name` | str | Human-readable name for the signal |
+| `audience` | `RapidataAudience` \| str | Audience (or id string) the spawned jobs will target |
+| `job_definition` | `RapidataJobDefinition` \| str | Job definition (or id string) each firing creates a job from |
+| `interval_hours` | int | Hours between consecutive firings (minimum 1) |
+| `revision_number` | int \| None | Optional: pin a specific job-definition revision; omit for "latest at fire time" |
+| `is_public` | bool | If `True`, the signal is readable by every authenticated user in your org |
+
+```python
+signal = client.signals.create_signal(
+    name="Daily prompt alignment",
+    audience=audience,           # RapidataAudience or id string
+    job_definition=job_def,      # RapidataJobDefinition or id string
+    interval_hours=24,
+    # revision_number=2,         # Optional: pin a revision
+    # is_public=True,            # Optional: org-wide visibility
+)
+```
+
+### Signal methods
+
+| Method | Description |
+|--------|-------------|
+| `signal.get_jobs(page_size=10)` | List `RapidataJob` objects created by this signal |
+| `signal.trigger()` | Fire one job immediately; returns right away — job created asynchronously |
+| `signal.wait_for_next_job(timeout=600)` | Block until the next firing creates its job and return it |
+| `signal.pause()` | Pause the scheduler (manual `trigger()` calls still fire) |
+| `signal.resume()` | Resume a paused signal |
+| `signal.update(name=..., interval_hours=...)` | Update the signal's name and/or cadence |
+| `signal.delete()` | Delete the signal and all its runs |
+
+### Signal manager methods
+
+| Method | Description |
+|--------|-------------|
+| `client.signals.get_signal_by_id("signal_id")` | Look up a signal by id |
+| `client.signals.find_signals(name="filter")` | Find signals by name |
+
+### Signal properties
+
+| Property | Description |
+|----------|-------------|
+| `id` | Unique signal id |
+| `name` / `description` | Display name and optional description |
+| `audience_id` | The audience each job targets |
+| `job_definition_id` | The job definition each job is created from |
+| `revision_number` | Pinned revision, or `None` for "latest at fire time" |
+| `interval_hours` | How often the signal fires, in hours |
+| `next_run_at` / `last_run_at` | Timestamps of the next and most recent firings |
+| `is_paused` | Whether the scheduler is currently skipping this signal |
+| `is_public` | Whether other users can discover and read it |
+| `created_at` | When the signal was created |
+
 ## Configuration
 
 ```python

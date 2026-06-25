@@ -9,7 +9,7 @@ Rapidata connects you with distributed human labelers worldwide for fast, high-q
 
 ## Before you start: check the skill is up to date
 
-This skill is pinned to **Rapidata SDK v3.15.1**. Run this check **once at the start of a Rapidata task** (not on every call) to confirm the user's runtime matches the skill:
+This skill is pinned to **Rapidata SDK v3.15.2**. Run this check **once at the start of a Rapidata task** (not on every call) to confirm the user's runtime matches the skill:
 
 ```bash
 python -c "import rapidata; print(rapidata.__version__)" 2>/dev/null \
@@ -23,7 +23,7 @@ Compare the output to the pinned version above:
      - Re-run the install command to pull the latest: `/install-plugin https://github.com/RapidataAI/skills`, **or**
      - Use the plugin manager: `/plugin` → `rapidata-sdk-plugin` → update.
   2. Tell the user clearly:
-     > ⚠️ The Rapidata skill is pinned to v3.15.1 but v{installed} is installed — the skill docs may be out of date. I've suggested updating the plugin; if the update isn't available yet, I'll proceed with the documented API and flag any surprises.
+     > ⚠️ The Rapidata skill is pinned to v3.15.2 but v{installed} is installed — the skill docs may be out of date. I've suggested updating the plugin; if the update isn't available yet, I'll proceed with the documented API and flag any surprises.
   3. Proceed using the documented API. If you hit an unexpected error (missing attribute, changed signature), stop and tell the user the skill is likely the cause — don't guess at the new API.
 
 - **Installed < pinned** — the user's runtime is older than this skill. Suggest `pip install -U rapidata` so the runtime matches.
@@ -62,6 +62,7 @@ client = RapidataClient(client_id="...", client_secret="...")
 - `client.flow` — continuous ranking flows
 - `client.mri` — model ranking insights / benchmarks
 - `client.order` — legacy order API (still supported)
+- `client.signals` — run a labeling job on a repeating schedule
 - `client.context` — shorten over-long datapoint contexts against a specific question
 
 ## New API: Job Definitions + Audiences (Recommended)
@@ -649,6 +650,57 @@ leaderboard.view()
 benchmarks = client.mri.find_benchmarks(name="AI Art", amount=10)
 benchmark = client.mri.get_benchmark_by_id("benchmark_id")
 ```
+
+## Signals (Scheduled Labeling)
+
+A signal runs the same labeling job on a repeating schedule: bind a job definition to an audience and an interval, and Rapidata creates a new job on every tick.
+
+```python
+from rapidata import RapidataClient
+
+client = RapidataClient()
+
+audience = client.audience.get_audience_by_id("aud_MU1GZYoESyO")
+
+job_def = client.job.create_compare_job_definition(
+    name="Prompt Alignment Job",
+    instruction="Which image follows the prompt more accurately?",
+    datapoints=[["flux_book.jpg", "mj_book.jpg"]],
+    contexts=["A small blue book sitting on a large red book."],
+)
+
+signal = client.signals.create_signal(
+    name="Daily prompt alignment",
+    audience=audience,           # also accepts id string
+    job_definition=job_def,      # also accepts id string
+    interval_hours=24,
+    # revision_number=...,       # Optional: pin a specific job-definition revision
+    # is_public=True,            # Optional: let others in your org read the signal
+)
+
+# Inspect jobs created by the signal
+for job in signal.get_jobs(page_size=10):
+    print(job, job.get_status())
+
+# Fire one job immediately instead of waiting for the schedule
+signal.trigger()
+job = signal.wait_for_next_job(timeout=600)  # blocks until the job is created
+print(job.get_results())
+
+# Manage the signal
+signal.pause()
+signal.resume()
+signal.update(name="Hourly prompt alignment", interval_hours=1)
+signal.delete()
+
+# Look signals up later
+signal = client.signals.get_signal_by_id("signal_id")
+signals = client.signals.find_signals(name="alignment")
+```
+
+**Signal properties:** `id`, `name`, `description`, `audience_id`, `job_definition_id`, `revision_number`, `interval_hours`, `next_run_at`, `last_run_at`, `is_paused`, `is_public`, `created_at`.
+
+Note: `signal.pause()` only affects the scheduler — manual `trigger()` calls still fire on a paused signal.
 
 ## Additional Resources
 

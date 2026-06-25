@@ -652,6 +652,52 @@ job_def = client.job.create_classification_job_definition(
 )
 ```
 
+## Signal (Scheduled Labeling)
+
+```python
+from rapidata import RapidataClient
+
+client = RapidataClient()
+
+audience = client.audience.get_audience_by_id("aud_MU1GZYoESyO")
+
+job_def = client.job.create_compare_job_definition(
+    name="Prompt Alignment Job",
+    instruction="Which image follows the prompt more accurately?",
+    datapoints=[["flux_book.jpg", "mj_book.jpg"]],
+    contexts=["A small blue book sitting on a large red book."],
+)
+
+# Create a signal that fires every 24 hours
+signal = client.signals.create_signal(
+    name="Daily prompt alignment",
+    audience=audience,
+    job_definition=job_def,
+    interval_hours=24,
+)
+
+# Inspect jobs created by the signal so far
+for job in signal.get_jobs(page_size=10):
+    print(job, job.get_status())
+
+# Trigger a job immediately without waiting for the schedule
+signal.trigger()
+job = signal.wait_for_next_job(timeout=600)
+results = job.get_results()
+
+# Pause / resume / update
+signal.pause()
+signal.resume()
+signal.update(name="Hourly prompt alignment", interval_hours=1)
+
+# Look up later
+signal = client.signals.get_signal_by_id("signal_id")
+signals = client.signals.find_signals(name="alignment")
+
+# Delete when no longer needed
+signal.delete()
+```
+
 ## Legacy Order API
 
 ```python
