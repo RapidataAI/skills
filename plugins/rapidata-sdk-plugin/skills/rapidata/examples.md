@@ -350,8 +350,7 @@ results = job.get_results()
 
 ```python
 from rapidata import (
-    RapidataClient, CountryFilter, LanguageFilter,
-    UserScoreFilter,
+    RapidataClient, CountryFilter, LanguageFilter, DemographicFilter,
 )
 
 client = RapidataClient()
@@ -359,9 +358,12 @@ audience = client.audience.create_audience(name="US English Evaluators")
 audience.update_filters([
     CountryFilter(country_codes=["US", "CA"]),
     LanguageFilter(language_codes=["en"]),
-    UserScoreFilter(lower_bound=0.5, upper_bound=1.0),
+    DemographicFilter(identifier="age", values=["18-29", "30-39"]),
 ])
-# Add examples, then assign jobs as normal
+# Add examples, then assign jobs as normal.
+# Only CountryFilter, LanguageFilter, and DemographicFilter (+ And/Or/Not) work on
+# audiences. UserScoreFilter / AgeFilter / GenderFilter / DeviceFilter are order-only
+# and raise NotImplementedError here — pass them to client.order.create_*_order(filters=[...]).
 ```
 
 ## Filtered Audience

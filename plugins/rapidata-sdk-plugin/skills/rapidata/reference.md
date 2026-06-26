@@ -109,6 +109,47 @@ job_definition = client.job.create_free_text_job_definition(
 
 `responses_per_datapoint`, `answer_options`, `a_b_names`, `confidence_threshold`, and `quorum_threshold` are not available for ranking jobs.
 
+## Audiences
+
+**Goal.** An audience is a reusable pool of annotators you qualify **once** and then reuse across many jobs. You qualify a pool two ways — by training it on **qualification examples** (tasks with a known-correct answer; only labelers who answer them correctly are recruited) and/or by attaching **recruitment filters** (country, language, demographics). This moves quality control up front: instead of re-screening labelers on every job, you build the pool once and assign job after job to it.
+
+**Three kinds:**
+
+| Kind | How to get it | When to use |
+|------|---------------|-------------|
+| global | `client.audience.get_audience_by_id("global")` | Instant, baseline quality, no setup |
+| curated | `client.audience.get_audience_by_id("aud_MU1GZYoESyO")` (alignment) | Pre-trained on a domain |
+| custom | `client.audience.create_audience(name=...)` + `add_*_example(...)` | You need labelers qualified on *your* task |
+
+**Lifecycle / management:**
+
+```python
+# Create / fetch / discover
+audience = client.audience.create_audience(name="Expert Evaluators", filters=None)
+audience = client.audience.get_audience_by_id("global")            # or "aud_..." / any audience id
+audiences = client.audience.find_audiences(name="", amount=10, page=1)   # your audiences, newest first
+
+# Train a custom audience (min 3 examples before recruiting starts; every truth must be human-reviewed)
+audience.add_classification_example(instruction=..., answer_options=[...], datapoint=..., truth=[...])
+audience.add_compare_example(instruction=..., datapoint=[...], truth=...)
+audience.add_locate_example(instruction=..., datapoint=..., truths=[Box(...)])     # requires: from rapidata import Box
+audience.add_draw_example(instruction=..., datapoint=..., truths=[Box(...)])
+audience.add_select_words_example(instruction=..., datapoint=..., sentence=..., truths=[1])
+df = audience.get_examples(amount=10, page=1)                       # inspect examples (DataFrame)
+
+# Manage
+audience.update_name("New Name")
+audience.update_filters([CountryFilter(["US"]), LanguageFilter(["en"])])  # audience-supported filters only
+filtered = audience.filter([CountryFilter(["US"])])                 # slim subset, reuses the pool (no re-recruiting)
+audience.delete()
+
+# Use
+job = audience.assign_job(job_def)                                  # start a job on the pool
+jobs = audience.find_jobs(name="", amount=10, page=1)              # jobs assigned to this audience
+```
+
+Note: free-text answers can't be graded against a ground truth, so there is no `add_free_text_example` — custom audiences cannot be trained for free-text tasks.
+
 ## Demographic Filters
 
 All filters are importable from the top-level `rapidata` package.
@@ -121,25 +162,37 @@ from rapidata import (
     NotFilter, OrFilter, AndFilter,
 )
 
+# --- On an audience: only CountryFilter, LanguageFilter, DemographicFilter
+#     (and the And/Or/Not combinators) are supported. Order-only filters raise
+#     NotImplementedError here. ---
 audience.update_filters([
     CountryFilter(country_codes=["US", "CA", "GB"]),                  # 2-letter ISO codes (uppercased)
     LanguageFilter(language_codes=["en", "fr"]),                      # 2-letter ISO language codes
-    UserScoreFilter(lower_bound=0.5, upper_bound=0.99),               # 0.0–1.0
     DemographicFilter(identifier="age", values=["18-29", "30-39"]),   # demographic attribute filter
-    AgeFilter(age_groups=[AgeGroup.AGE_25_34, AgeGroup.AGE_35_44]),
-    GenderFilter(genders=[Gender.MALE, Gender.FEMALE]),
-    DeviceFilter(device_types=[DeviceType.MOBILE, DeviceType.DESKTOP]),
 ])
 
 # Combine filters with logic operators
 combined = OrFilter([filter1, filter2])
 audience.update_filters([NotFilter(combined)])
 
-# Derive a filtered subset of a trained audience without re-onboarding labelers
-# Supported filters for .filter(): CountryFilter and LanguageFilter only
+# --- On an order: the order-only filters apply here (NOT on audiences) ---
+client.order.create_classification_order(
+    name="...", instruction="...", answer_options=["Yes", "No"], datapoints=["img.jpg"],
+    filters=[
+        UserScoreFilter(lower_bound=0.5, upper_bound=0.99),               # 0.0–1.0
+        AgeFilter(age_groups=[AgeGroup.AGE_25_34, AgeGroup.AGE_35_44]),
+        GenderFilter(genders=[Gender.MALE, Gender.FEMALE]),
+        DeviceFilter(device_types=[DeviceType.MOBILE, DeviceType.DESKTOP]),
+    ],
+)
+
+# Derive a filtered subset of a trained audience without re-onboarding labelers.
+# Supported filters for .filter(): CountryFilter, LanguageFilter, DemographicFilter
+# (plus And/Or/Not combinators).
 filtered = base_audience.filter([
     CountryFilter(["US"]),
     LanguageFilter(["en"]),
+    DemographicFilter(identifier="age", values=["18-29"]),
 ])
 job = filtered.assign_job(job_def)  # filtered is a RapidataFilteredAudience
 
@@ -155,8 +208,8 @@ us_or_ca_not_fr = base_audience.filter([
 |--------|-----------|---------------------|
 | `CountryFilter` | `(country_codes: list[str])` | yes |
 | `LanguageFilter` | `(language_codes: list[str])` | yes |
-| `UserScoreFilter` | `(lower_bound: float = 0.0, upper_bound: float = 1.0, dimension: str \| None = None)` | yes |
 | `DemographicFilter` | `(identifier: str, values: list[str])` | yes |
+| `UserScoreFilter` | `(lower_bound: float = 0.0, upper_bound: float = 1.0, dimension: str \| None = None)` | orders only |
 | `AgeFilter` | `(age_groups: list[AgeGroup])` | orders only |
 | `GenderFilter` | `(genders: list[Gender])` | orders only |
 | `DeviceFilter` | `(device_types: list[DeviceType])` | orders only |
@@ -166,7 +219,7 @@ us_or_ca_not_fr = base_audience.filter([
 | `OrFilter` | `(filters: list[RapidataFilter])` | both |
 | `AndFilter` | `(filters: list[RapidataFilter])` | both |
 
-Note: `AgeFilter`, `GenderFilter`, `DeviceFilter`, `CampaignFilter`, and `CustomFilter` cannot currently be attached to audiences with `audience.update_filters(...)` — use them as `filters=[...]` on `client.order.create_*_order(...)` instead.
+Note: `UserScoreFilter`, `AgeFilter`, `GenderFilter`, `DeviceFilter`, `CampaignFilter`, and `CustomFilter` cannot be attached to audiences (`audience.update_filters(...)` / `audience.filter(...)` raise `NotImplementedError`) — use them as `filters=[...]` on `client.order.create_*_order(...)` instead. Only `CountryFilter`, `LanguageFilter`, `DemographicFilter`, and the `And`/`Or`/`Not` combinators work on audiences.
 
 ## Selections (Order API only)
 

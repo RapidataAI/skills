@@ -51,7 +51,10 @@ client = RapidataClient(client_id="...", client_secret="...")
 ## Core Concepts
 
 - **Job Definition**: A reusable configuration template for a labeling task (task type, instruction, datapoints, answer options)
-- **Audience**: A group of pre-screened labelers. Can be global (fast, baseline quality), curated (pre-trained on domains like "alignment"), or custom (trained with your qualification examples)
+- **Audience**: A reusable pool of annotators you qualify **once** — via qualification examples and/or recruitment filters — and then reuse across many jobs, so quality control happens up front instead of being re-screened per job. Three kinds:
+  - **global** — instant, baseline quality, no setup. Use `client.audience.get_audience_by_id("global")`.
+  - **curated** — pre-trained on a domain (e.g. alignment via `aud_MU1GZYoESyO`).
+  - **custom** — trained with your own qualification examples (`client.audience.create_audience(...)` + `add_*_example(...)`).
 - **Job**: A running instance of a job definition assigned to an audience
 - **Flow**: Lightweight continuous ranking without full job setup
 - **MRI/Benchmark**: Compare and rank AI models on leaderboards
@@ -348,14 +351,21 @@ audience.add_select_words_example(
 examples_df = audience.get_examples(amount=10, page=1)
 ```
 
+**Managing audiences (`client.audience`):**
+- `client.audience.create_audience(name, filters=None)` — create a custom audience
+- `client.audience.get_audience_by_id(audience_id)` — fetch by id; pass `"global"` for the ready-to-go global audience
+- `client.audience.find_audiences(name="", amount=10, page=1)` — list your audiences (newest first), optionally filtered by name
+
 **Audience methods:**
 - `audience.assign_job(job_definition)` — start a job
 - `audience.find_jobs(name="filter", amount=10, page=1)` — find assigned jobs
-- `audience.update_filters([...])` — apply demographic filters
-- `audience.filter([filters])` — derive a filtered subset of this audience without re-onboarding; only `CountryFilter` and `LanguageFilter` are supported; combine with `&` / `|` / `~` operators; returns a `RapidataFilteredAudience` (exposes `assign_job`, `find_jobs`, `delete` only — no `add_classification_example`, `update_filters`, or nested `.filter()`)
+- `audience.update_filters([...])` — set the recruitment filters on this audience (audience-supported filters only — see below)
+- `audience.filter([filters])` — derive a filtered subset of this audience without re-onboarding labelers; supports `CountryFilter`, `LanguageFilter`, and `DemographicFilter`, plus the `AndFilter`/`OrFilter`/`NotFilter` combinators (also via `&` / `|` / `~`); returns a `RapidataFilteredAudience` (exposes `assign_job`, `find_jobs`, `delete` only — no `add_classification_example`, `update_filters`, or nested `.filter()`)
 - `audience.update_name("New Name")` — rename
 - `audience.get_examples(amount=10, page=1)` — list qualification examples (returns DataFrame)
 - `audience.delete()` — delete the audience
+
+**Audience-supported filters:** only `CountryFilter`, `LanguageFilter`, and `DemographicFilter` (plus `AndFilter`/`OrFilter`/`NotFilter`) can be attached to an audience via `update_filters(...)` or `.filter(...)`. `UserScoreFilter`, `AgeFilter`, `GenderFilter`, `DeviceFilter`, `CampaignFilter`, and `CustomFilter` are **order-only** and raise `NotImplementedError` on audiences — pass them as `filters=[...]` to `client.order.create_*_order(...)` instead.
 
 **Job / Job Definition methods:**
 - `job_def.preview()` — open browser preview of what labelers see
