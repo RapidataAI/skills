@@ -189,11 +189,11 @@ client.order.create_classification_order(
 
 # Derive a filtered subset of a trained audience without re-onboarding labelers.
 # Supported filters for .filter(): CountryFilter, LanguageFilter, DemographicFilter
-# (plus And/Or/Not combinators).
+# (plus And/Or/Not combinators). For age, use the AgeGroup enum's .value.
 filtered = base_audience.filter([
     CountryFilter(["US"]),
     LanguageFilter(["en"]),
-    DemographicFilter(identifier="age", values=["18-29"]),
+    DemographicFilter(identifier="age", values=[AgeGroup.BETWEEN_18_29.value]),
 ])
 job = filtered.assign_job(job_def)  # filtered is a RapidataFilteredAudience
 

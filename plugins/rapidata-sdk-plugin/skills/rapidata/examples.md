@@ -371,18 +371,19 @@ audience.update_filters([
 Derive a filtered subset of a trained audience without re-onboarding labelers:
 
 ```python
-from rapidata import RapidataClient, CountryFilter, LanguageFilter, DemographicFilter
+from rapidata import RapidataClient, CountryFilter, LanguageFilter, DemographicFilter, AgeGroup
 
 client = RapidataClient()
 
 base = client.audience.get_audience_by_id("audience_id")
 
 # .filter() narrows an audience's graduates. It also accepts DemographicFilter
-# (age/gender/occupation), which update_filters does not.
+# (age/gender/occupation), which update_filters does not. For age, use the
+# AgeGroup enum's .value rather than hardcoding the bucket string.
 filtered = base.filter([
     CountryFilter(["US"]),
     LanguageFilter(["en"]),
-    DemographicFilter(identifier="age", values=["18-29"]),
+    DemographicFilter(identifier="age", values=[AgeGroup.BETWEEN_18_29.value]),
 ])
 
 job_def = client.job.create_classification_job_definition(
