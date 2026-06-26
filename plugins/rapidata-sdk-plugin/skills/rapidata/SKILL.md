@@ -51,10 +51,10 @@ client = RapidataClient(client_id="...", client_secret="...")
 ## Core Concepts
 
 - **Job Definition**: A reusable configuration template for a labeling task (task type, instruction, datapoints, answer options)
-- **Audience**: A reusable pool of annotators you qualify **once** — via qualification examples and/or recruitment filters — and then reuse across many jobs, so quality control happens up front instead of being re-screened per job. Three kinds:
-  - **global** — instant, baseline quality, no setup. Use `client.audience.get_audience_by_id("global")`.
+- **Audience**: A group of annotators selected and qualified for **one specific task** — via qualification examples and/or recruitment filters chosen to match that task. The whole point is to put the *right* people on *that* task. An audience trained for one task is **not** meant to be reused on a different, unrelated task: its qualification examples define what "good" means for the original task only, so reusing it elsewhere silently loses the quality it was built for. Reusing the same audience for repeated or scheduled runs of the **same** task is exactly right; for a different task, create a new audience. Three kinds:
+  - **global** — the generic baseline pool for tasks that need no special qualification; instant, no setup. Use `client.audience.get_audience_by_id("global")`.
   - **curated** — pre-trained on a domain (e.g. alignment via `aud_MU1GZYoESyO`).
-  - **custom** — trained with your own qualification examples (`client.audience.create_audience(...)` + `add_*_example(...)`).
+  - **custom** — trained with your own task-specific qualification examples (`client.audience.create_audience(...)` + `add_*_example(...)`).
 - **Job**: A running instance of a job definition assigned to an audience
 - **Flow**: Lightweight continuous ranking without full job setup
 - **MRI/Benchmark**: Compare and rank AI models on leaderboards
@@ -482,6 +482,7 @@ settings=[CustomSetting(key="my_flag", value="on")]              # Rapid-level f
 1. **Always preview first** — call `.preview()` before assigning to catch instruction issues early
 2. **Use `NoShuffleSetting()` for Likert scales** — ordered answer options get shuffled by default
 3. **Min 3 audience examples** — custom audiences need at least 3 qualification examples before recruiting
+   - **One audience = one task.** A custom audience is qualified for the specific task its examples describe. Reusing it for a different, unrelated task is a misuse — the qualification no longer applies and the quality guarantee is lost. Reuse it only for repeated/scheduled runs of the *same* task; spin up a new audience for a new task.
 4. **25-second time limit** — labelers have ~25 seconds per task; keep instructions concise
 5. **Responses may exceed `responses_per_datapoint`** — concurrent labelers can cause slight overflow
 6. **Two early stopping strategies, mutually exclusive** — `confidence_threshold` (statistical, weighted by labeler trust scores) or `quorum_threshold` (stops when N responses agree); cannot use both at once

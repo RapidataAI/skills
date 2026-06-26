@@ -111,7 +111,9 @@ job_definition = client.job.create_free_text_job_definition(
 
 ## Audiences
 
-**Goal.** An audience is a reusable pool of annotators you qualify **once** and then reuse across many jobs. You qualify a pool two ways — by training it on **qualification examples** (tasks with a known-correct answer; only labelers who answer them correctly are recruited) and/or by attaching **recruitment filters** (country, language, demographics). This moves quality control up front: instead of re-screening labelers on every job, you build the pool once and assign job after job to it.
+**Goal.** An audience selects a specific group of annotators for a **specific task**. You tailor the pool to that task two ways — by training it on **qualification examples** (tasks with a known-correct answer; only labelers who answer them correctly are recruited) and/or by attaching **recruitment filters** (country, language, demographics). The point is to get the *right* annotators onto *that* task.
+
+A task-specific audience is meant for that task and its repeated or scheduled runs — **not** for reuse on a different, unrelated task. The qualification examples encode what "good" means for the original task; once the task changes they no longer describe the work, so reusing the audience silently loses the quality it was built for. Create a new audience per distinct task. (The `global` audience is the exception: it's the generic baseline pool for tasks that need no special qualification.)
 
 **Three kinds:**
 
