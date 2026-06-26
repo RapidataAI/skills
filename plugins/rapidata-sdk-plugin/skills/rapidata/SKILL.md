@@ -51,7 +51,10 @@ client = RapidataClient(client_id="...", client_secret="...")
 ## Core Concepts
 
 - **Job Definition**: A reusable configuration template for a labeling task (task type, instruction, datapoints, answer options)
-- **Audience**: A group of pre-screened labelers. Can be global (fast, baseline quality), curated (pre-trained on domains like "alignment"), or custom (trained with your qualification examples)
+- **Audience**: A group of annotators selected and qualified for **one specific task** — via qualification examples and/or recruitment filters chosen to match that task. The whole point is to put the *right* people on *that* task. An audience trained for one task is **not** meant to be reused on a different, unrelated task: its qualification examples define what "good" means for the original task only, so reusing it elsewhere silently loses the quality it was built for. Reusing the same audience for repeated or scheduled runs of the **same** task is exactly right; for a different task, create a new audience. Three kinds:
+  - **global** — the generic baseline pool for tasks that need no special qualification; instant, no setup. Use `client.audience.get_audience_by_id("global")`.
+  - **curated** — pre-trained on a domain (e.g. alignment via `aud_MU1GZYoESyO`).
+  - **custom** — trained with your own task-specific qualification examples (`client.audience.create_audience(...)` + `add_*_example(...)`).
 - **Job**: A running instance of a job definition assigned to an audience
 - **Flow**: Lightweight continuous ranking without full job setup
 - **MRI/Benchmark**: Compare and rank AI models on leaderboards
@@ -348,14 +351,21 @@ audience.add_select_words_example(
 examples_df = audience.get_examples(amount=10, page=1)
 ```
 
+**Managing audiences (`client.audience`):**
+- `client.audience.create_audience(name, filters=None)` — create a custom audience
+- `client.audience.get_audience_by_id(audience_id)` — fetch by id; pass `"global"` for the ready-to-go global audience
+- `client.audience.find_audiences(name="", amount=10, page=1)` — list your audiences (newest first), optionally filtered by name
+
 **Audience methods:**
 - `audience.assign_job(job_definition)` — start a job
 - `audience.find_jobs(name="filter", amount=10, page=1)` — find assigned jobs
-- `audience.update_filters([...])` — apply demographic filters
-- `audience.filter([filters])` — derive a filtered subset of this audience without re-onboarding; only `CountryFilter` and `LanguageFilter` are supported; combine with `&` / `|` / `~` operators; returns a `RapidataFilteredAudience` (exposes `assign_job`, `find_jobs`, `delete` only — no `add_classification_example`, `update_filters`, or nested `.filter()`)
+- `audience.update_filters([...])` — set the recruitment filters on this audience (audience-supported filters only — see below)
+- `audience.filter([filters])` — derive a filtered subset of this audience without re-onboarding labelers; supports `CountryFilter`, `LanguageFilter`, and `DemographicFilter`, plus the `AndFilter`/`OrFilter`/`NotFilter` combinators (also via `&` / `|` / `~`); returns a `RapidataFilteredAudience` (exposes `assign_job`, `find_jobs`, `delete` only — no `add_classification_example`, `update_filters`, or nested `.filter()`)
 - `audience.update_name("New Name")` — rename
 - `audience.get_examples(amount=10, page=1)` — list qualification examples (returns DataFrame)
 - `audience.delete()` — delete the audience
+
+**Audience-supported filters:** `update_filters(...)` (recruitment filters) accepts `CountryFilter` and `LanguageFilter`; `.filter(...)` (deriving a filtered audience from graduates) additionally accepts `DemographicFilter` (age/gender/occupation). Both accept the `AndFilter`/`OrFilter`/`NotFilter` combinators. `UserScoreFilter`, `AgeFilter`, `GenderFilter`, `DeviceFilter`, `CampaignFilter`, and `CustomFilter` are **order-only** and raise `NotImplementedError` on audiences — pass them as `filters=[...]` to `client.order.create_*_order(...)` instead.
 
 **Job / Job Definition methods:**
 - `job_def.preview()` — open browser preview of what labelers see
@@ -472,6 +482,7 @@ settings=[CustomSetting(key="my_flag", value="on")]              # Rapid-level f
 1. **Always preview first** — call `.preview()` before assigning to catch instruction issues early
 2. **Use `NoShuffleSetting()` for Likert scales** — ordered answer options get shuffled by default
 3. **Min 3 audience examples** — custom audiences need at least 3 qualification examples before recruiting
+   - **One audience = one task.** A custom audience is qualified for the specific task its examples describe. Reusing it for a different, unrelated task is a misuse — the qualification no longer applies and the quality guarantee is lost. Reuse it only for repeated/scheduled runs of the *same* task; spin up a new audience for a new task.
 4. **25-second time limit** — labelers have ~25 seconds per task; keep instructions concise
 5. **Responses may exceed `responses_per_datapoint`** — concurrent labelers can cause slight overflow
 6. **Two early stopping strategies, mutually exclusive** — `confidence_threshold` (statistical, weighted by labeler trust scores) or `quorum_threshold` (stops when N responses agree); cannot use both at once
