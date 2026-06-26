@@ -350,7 +350,7 @@ results = job.get_results()
 
 ```python
 from rapidata import (
-    RapidataClient, CountryFilter, LanguageFilter, DemographicFilter,
+    RapidataClient, CountryFilter, LanguageFilter,
 )
 
 client = RapidataClient()
@@ -358,12 +358,12 @@ audience = client.audience.create_audience(name="US English Evaluators")
 audience.update_filters([
     CountryFilter(country_codes=["US", "CA"]),
     LanguageFilter(language_codes=["en"]),
-    DemographicFilter(identifier="age", values=["18-29", "30-39"]),
 ])
 # Add examples, then assign jobs as normal.
-# Only CountryFilter, LanguageFilter, and DemographicFilter (+ And/Or/Not) work on
-# audiences. UserScoreFilter / AgeFilter / GenderFilter / DeviceFilter are order-only
-# and raise NotImplementedError here — pass them to client.order.create_*_order(filters=[...]).
+# update_filters sets recruitment filters: CountryFilter / LanguageFilter (+ And/Or/Not).
+# UserScoreFilter / AgeFilter / GenderFilter / DeviceFilter are order-only and raise
+# NotImplementedError here — pass them to client.order.create_*_order(filters=[...]).
+# DemographicFilter applies to graduates, so use it with audience.filter(...) (see below).
 ```
 
 ## Filtered Audience
@@ -371,15 +371,18 @@ audience.update_filters([
 Derive a filtered subset of a trained audience without re-onboarding labelers:
 
 ```python
-from rapidata import RapidataClient, CountryFilter, LanguageFilter
+from rapidata import RapidataClient, CountryFilter, LanguageFilter, DemographicFilter
 
 client = RapidataClient()
 
 base = client.audience.get_audience_by_id("audience_id")
 
+# .filter() narrows an audience's graduates. It also accepts DemographicFilter
+# (age/gender/occupation), which update_filters does not.
 filtered = base.filter([
     CountryFilter(["US"]),
     LanguageFilter(["en"]),
+    DemographicFilter(identifier="age", values=["18-29"]),
 ])
 
 job_def = client.job.create_classification_job_definition(

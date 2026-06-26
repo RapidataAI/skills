@@ -365,7 +365,7 @@ examples_df = audience.get_examples(amount=10, page=1)
 - `audience.get_examples(amount=10, page=1)` — list qualification examples (returns DataFrame)
 - `audience.delete()` — delete the audience
 
-**Audience-supported filters:** only `CountryFilter`, `LanguageFilter`, and `DemographicFilter` (plus `AndFilter`/`OrFilter`/`NotFilter`) can be attached to an audience via `update_filters(...)` or `.filter(...)`. `UserScoreFilter`, `AgeFilter`, `GenderFilter`, `DeviceFilter`, `CampaignFilter`, and `CustomFilter` are **order-only** and raise `NotImplementedError` on audiences — pass them as `filters=[...]` to `client.order.create_*_order(...)` instead.
+**Audience-supported filters:** `update_filters(...)` (recruitment filters) accepts `CountryFilter` and `LanguageFilter`; `.filter(...)` (deriving a filtered audience from graduates) additionally accepts `DemographicFilter` (age/gender/occupation). Both accept the `AndFilter`/`OrFilter`/`NotFilter` combinators. `UserScoreFilter`, `AgeFilter`, `GenderFilter`, `DeviceFilter`, `CampaignFilter`, and `CustomFilter` are **order-only** and raise `NotImplementedError` on audiences — pass them as `filters=[...]` to `client.order.create_*_order(...)` instead.
 
 **Job / Job Definition methods:**
 - `job_def.preview()` — open browser preview of what labelers see

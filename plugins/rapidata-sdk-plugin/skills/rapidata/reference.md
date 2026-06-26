@@ -164,13 +164,12 @@ from rapidata import (
     NotFilter, OrFilter, AndFilter,
 )
 
-# --- On an audience: only CountryFilter, LanguageFilter, DemographicFilter
-#     (and the And/Or/Not combinators) are supported. Order-only filters raise
-#     NotImplementedError here. ---
+# --- Recruitment filters on an audience: CountryFilter and LanguageFilter
+#     (plus the And/Or/Not combinators). Order-only filters raise
+#     NotImplementedError here; DemographicFilter belongs on .filter() (below). ---
 audience.update_filters([
     CountryFilter(country_codes=["US", "CA", "GB"]),                  # 2-letter ISO codes (uppercased)
     LanguageFilter(language_codes=["en", "fr"]),                      # 2-letter ISO language codes
-    DemographicFilter(identifier="age", values=["18-29", "30-39"]),   # demographic attribute filter
 ])
 
 # Combine filters with logic operators
@@ -210,7 +209,7 @@ us_or_ca_not_fr = base_audience.filter([
 |--------|-----------|---------------------|
 | `CountryFilter` | `(country_codes: list[str])` | yes |
 | `LanguageFilter` | `(language_codes: list[str])` | yes |
-| `DemographicFilter` | `(identifier: str, values: list[str])` | yes |
+| `DemographicFilter` | `(identifier: str, values: list[str])` | `.filter()` only |
 | `UserScoreFilter` | `(lower_bound: float = 0.0, upper_bound: float = 1.0, dimension: str \| None = None)` | orders only |
 | `AgeFilter` | `(age_groups: list[AgeGroup])` | orders only |
 | `GenderFilter` | `(genders: list[Gender])` | orders only |
@@ -221,7 +220,7 @@ us_or_ca_not_fr = base_audience.filter([
 | `OrFilter` | `(filters: list[RapidataFilter])` | both |
 | `AndFilter` | `(filters: list[RapidataFilter])` | both |
 
-Note: `UserScoreFilter`, `AgeFilter`, `GenderFilter`, `DeviceFilter`, `CampaignFilter`, and `CustomFilter` cannot be attached to audiences (`audience.update_filters(...)` / `audience.filter(...)` raise `NotImplementedError`) — use them as `filters=[...]` on `client.order.create_*_order(...)` instead. Only `CountryFilter`, `LanguageFilter`, `DemographicFilter`, and the `And`/`Or`/`Not` combinators work on audiences.
+Note: recruitment filters set with `audience.update_filters(...)` are limited to `CountryFilter`, `LanguageFilter`, and the `And`/`Or`/`Not` combinators. `audience.filter(...)` (deriving a filtered audience from graduates) additionally accepts `DemographicFilter` (age/gender/occupation). `UserScoreFilter`, `AgeFilter`, `GenderFilter`, `DeviceFilter`, `CampaignFilter`, and `CustomFilter` cannot be attached to audiences at all (they raise `NotImplementedError`) — use them as `filters=[...]` on `client.order.create_*_order(...)` instead.
 
 ## Selections (Order API only)
 
