@@ -691,7 +691,8 @@ from rapidata import rapidata_config, logger, CompressionConfig
 rapidata_config.logging.level = "INFO"       # DEBUG, INFO, WARNING, ERROR, CRITICAL
 rapidata_config.logging.log_file = "/path/to/log.txt"
 rapidata_config.logging.silent_mode = False  # also suppresses terminal QR codes printed on job/order creation
-rapidata_config.logging.enable_otlp = True   # OpenTelemetry tracing
+rapidata_config.logging.enable_otlp = True   # OpenTelemetry tracing (auto-disabled for environments without an OTLP collector — only rapidata.ai and rabbitdata.ch have one)
+rapidata_config.logging.environment = "rapidata.ai"  # API environment; derives the OTLP collector host (otlp-sdk.<environment>). Set automatically by RapidataClient from its environment
 
 # Upload tuning
 rapidata_config.upload.maxWorkers = 25        # Concurrent upload threads (warns above 200)
