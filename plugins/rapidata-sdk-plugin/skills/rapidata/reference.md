@@ -603,6 +603,10 @@ matrix_bm = benchmark.get_win_loss_matrix(                 # Pairwise wins/losse
     tags=None, participant_ids=None, leaderboard_ids=None, use_weighted_scoring=None,
 )
 
+# Access the jobs that ran for a leaderboard (one RapidataJob per run, most recent first)
+for job in leaderboard.jobs:
+    job_results = job.get_results()
+
 # Update leaderboard config live
 leaderboard.name = "Realism (Updated)"
 leaderboard.level_of_detail = "very high"
