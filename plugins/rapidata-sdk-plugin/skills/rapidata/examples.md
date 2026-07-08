@@ -625,6 +625,35 @@ job_def.update_dataset(
 )
 ```
 
+## Estimating Job Cost Before Launch
+
+Check what a run is expected to cost before committing to it. `estimated_cost` is available on a job definition (before assigning it to an audience) and on a running job.
+
+```python
+from rapidata import RapidataClient
+
+client = RapidataClient()
+audience = client.audience.get_audience_by_id("aud_MU1GZYoESyO")
+
+job_def = client.job.create_compare_job_definition(
+    name="Example Image Prompt Alignment",
+    instruction="Which image matches the description better?",
+    datapoints=[["midjourney.jpg", "flux.jpg"]],
+    contexts=["A small blue book sitting on a large red book."],
+)
+
+# Reading estimated_cost blocks briefly until the estimate is priced.
+estimate = job_def.estimated_cost
+print(
+    f"About {estimate.estimated_cost} for {estimate.required_responses} responses "
+    f"across {estimate.datapoint_count} datapoints"
+)
+
+# The same property is available once the job is running.
+job = audience.assign_job(job_def)
+print(job.estimated_cost.estimated_cost)
+```
+
 ## Context Shortening
 
 Datapoint contexts are limited to 400 characters. Use `client.context` to shorten them manually, or enable auto-shortening at upload time.

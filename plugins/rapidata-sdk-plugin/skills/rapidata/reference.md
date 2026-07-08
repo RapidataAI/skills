@@ -372,6 +372,38 @@ A datapoint stops when:
 - Good when you want predictable cost bounds with early termination
 - Best for unambiguous tasks with a clear correct answer
 
+## Cost Estimates
+
+Both `RapidataJobDefinition` and `RapidataJob` expose an `estimated_cost` property returning a `CostEstimate` — an approximate estimate of what the job will cost to run to completion. Reading it from a job definition lets you check the cost of a run **before** assigning it to an audience. `CostEstimate` is importable from the top-level `rapidata` package.
+
+The estimate is priced shortly after the definition/job is created, so the first read blocks briefly while polling until the estimate is available (raising `TimeoutError` if it is still not ready after a few minutes), then caches the result.
+
+```python
+job_def = client.job.create_compare_job_definition(
+    name="Example Image Prompt Alignment",
+    instruction="Which image matches the description better?",
+    datapoints=[["midjourney.jpg", "flux.jpg"]],
+    contexts=["A small blue book sitting on a large red book."],
+)
+
+estimate = job_def.estimated_cost   # blocks briefly until priced
+print(f"About {estimate.estimated_cost} for {estimate.required_responses} responses")
+
+# The same property is available once the job is running
+job = audience.assign_job(job_def)
+print(job.estimated_cost.estimated_cost)
+```
+
+### `CostEstimate` fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `estimated_cost` | float | Estimated total cost of running the job to completion, in your account's billing currency |
+| `datapoint_count` | int | Number of datapoints the job will label |
+| `required_responses` | int | Total number of responses the job collects to complete |
+
+This is an **estimate, not the final bill**: it is based on a sample of the job's tasks scaled to the number of responses requested, so the amount actually charged can differ. Early stopping can also lower the final cost by collecting fewer responses than the maximum.
+
 ## Settings Reference
 
 All settings inherit from `RapidataSetting` and are importable from `rapidata`.
