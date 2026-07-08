@@ -9,7 +9,7 @@ Rapidata connects you with distributed human labelers worldwide for fast, high-q
 
 ## Before you start: check the skill is up to date
 
-This skill is pinned to **Rapidata SDK v3.15.6**. Run this check **once at the start of a Rapidata task** (not on every call) to confirm the user's runtime matches the skill:
+This skill is pinned to **Rapidata SDK v3.16.0**. Run this check **once at the start of a Rapidata task** (not on every call) to confirm the user's runtime matches the skill:
 
 ```bash
 python -c "import rapidata; print(rapidata.__version__)" 2>/dev/null \
@@ -23,7 +23,7 @@ Compare the output to the pinned version above:
      - Re-run the install command to pull the latest: `/install-plugin https://github.com/RapidataAI/skills`, **or**
      - Use the plugin manager: `/plugin` → `rapidata-sdk-plugin` → update.
   2. Tell the user clearly:
-     > ⚠️ The Rapidata skill is pinned to v3.15.6 but v{installed} is installed — the skill docs may be out of date. I've suggested updating the plugin; if the update isn't available yet, I'll proceed with the documented API and flag any surprises.
+     > ⚠️ The Rapidata skill is pinned to v3.16.0 but v{installed} is installed — the skill docs may be out of date. I've suggested updating the plugin; if the update isn't available yet, I'll proceed with the documented API and flag any surprises.
   3. Proceed using the documented API. If you hit an unexpected error (missing attribute, changed signature), stop and tell the user the skill is likely the cause — don't guess at the new API.
 
 - **Installed < pinned** — the user's runtime is older than this skill. Suggest `pip install -U rapidata` so the runtime matches.
@@ -45,8 +45,33 @@ client = RapidataClient(client_id="...", client_secret="...")
 # Environment variables (useful for headless/container deployments):
 # RAPIDATA_CLIENT_ID, RAPIDATA_CLIENT_SECRET — authenticate without a browser
 # RAPIDATA_ENVIRONMENT — override the API endpoint (default: rapidata.ai)
+# RAPIDATA_TOKEN_FILE — read a shared access token from this file (see below)
 # Empty values are treated as unset and fall through to the next resolution layer.
 ```
+
+### Sharing a token across many workers (distributed training)
+
+When Rapidata is queried from a large distributed job (e.g. a ranking flow hit from hundreds or thousands of GPU workers), don't let every worker authenticate on its own — all their tokens expire at the same instant and the simultaneous re-auth looks like a coordinated burst that gets rate-limited. Instead, authenticate **once** and share the token via a file:
+
+```python
+from rapidata import RapidataClient
+
+# Coordinator (holds the client credentials): keep a shared token file fresh
+coordinator = RapidataClient(leeway=300)  # renew the token 5 min before expiry
+coordinator.maintain_token_file("/shared/rapidata_token.json").join()
+# maintain_token_file() writes the file immediately, then keeps rewriting it
+# atomically from a background thread (every 60s by default), creating the
+# directory if needed. .join() blocks forever — drop it if the coordinator
+# also does other work (e.g. rank 0 both trains and refreshes the token).
+
+# Workers (never see the client secret): point the SDK at that file
+client = RapidataClient(token_file="/shared/rapidata_token.json")
+# or set RAPIDATA_TOKEN_FILE and construct with no arguments.
+# The SDK reads the token at startup and re-reads the file whenever the
+# in-memory token is within 60s of expiry (configurable via leeway).
+```
+
+The token file contains a bearer token — write it only to storage your job alone can access. To roll your own file writer, export the current token with `coordinator.get_token()` (cheap to call at any frequency; only contacts the auth server once the token is within `leeway` of expiry), write it atomically, and keep the absolute `expires_at` field so workers know when to re-read. On older SDKs without `token_file`, pass the token dict directly with `RapidataClient(token=json.load(f))` — but the SDK never re-reads it, so each worker must construct a new client when the token expires.
 
 ## Core Concepts
 

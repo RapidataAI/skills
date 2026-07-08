@@ -727,7 +727,38 @@ Applies to single-asset uploads (`/asset/file` and `/asset/url`) and batched URL
 
 All config fields support environment-variable overrides with the `RAPIDATA_` prefix (e.g., `RAPIDATA_maxWorkers=10`, `RAPIDATA_DISABLE_OTLP=1`).
 
-**Client authentication** is also resolved from environment variables: `RAPIDATA_CLIENT_ID` and `RAPIDATA_CLIENT_SECRET` are used before falling back to `~/.config/rapidata/credentials.json` and browser login. `RAPIDATA_ENVIRONMENT` overrides the API endpoint (default: `rapidata.ai`). Empty values are treated as unset and fall through to the next resolution layer.
+**Client authentication** is also resolved from environment variables: `RAPIDATA_CLIENT_ID` and `RAPIDATA_CLIENT_SECRET` are used before falling back to `~/.config/rapidata/credentials.json` and browser login. `RAPIDATA_ENVIRONMENT` overrides the API endpoint (default: `rapidata.ai`). `RAPIDATA_TOKEN_FILE` points the client at a shared access-token file (equivalent to `token_file=`). Empty values are treated as unset and fall through to the next resolution layer.
+
+## Shared Token Files (Distributed Training)
+
+When Rapidata is queried from a large distributed job (e.g. hundreds or thousands of GPU workers hitting a ranking flow), don't let every worker authenticate on its own: each `RapidataClient()` exchanges the client credentials for an access token that expires ~1 hour later, so all workers re-auth in the same instant and the burst gets rate-limited. Authenticate **once** and share the token via a file that all workers can read.
+
+### `RapidataClient` authentication parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `leeway` | int | Seconds before token expiry at which the SDK refreshes/re-reads the token (default 60). A coordinator typically uses a larger value, e.g. `leeway=300`, to renew well before workers need a fresh token |
+| `token_file` | str | Path to a shared token file to read the access token from; the SDK re-reads it whenever the in-memory token is within `leeway` of expiry. Also settable via the `RAPIDATA_TOKEN_FILE` env var |
+| `token` | dict | An access-token dict passed directly (older pattern); the SDK never re-reads it, so a new client must be constructed once the token expires |
+
+### `client.maintain_token_file(path) → thread`
+
+Writes the token file at `path` immediately, then keeps rewriting it atomically from a background thread (every 60 seconds by default), creating the directory if needed. Returns a thread-like handle; `.join()` blocks the process forever (drop it if the coordinator also does other work).
+
+### `client.get_token() → dict`
+
+Returns the current access token as a dict. Cheap to call at any frequency: it only contacts the auth server once the token is within `leeway` of expiry. Use it to write the shared token file yourself (write atomically, and keep the absolute `expires_at` field so workers know when to re-read).
+
+```python
+from rapidata import RapidataClient
+
+# Coordinator: holds the client credentials and keeps the file fresh
+coordinator = RapidataClient(leeway=300)
+coordinator.maintain_token_file("/shared/rapidata_token.json").join()
+
+# Worker: reads the shared token, never sees the client secret
+client = RapidataClient(token_file="/shared/rapidata_token.json")
+```
 
 ## Context Management
 

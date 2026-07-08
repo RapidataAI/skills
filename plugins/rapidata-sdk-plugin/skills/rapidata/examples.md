@@ -704,6 +704,50 @@ signals = client.signals.find_signals(name="alignment")
 signal.delete()
 ```
 
+## Sharing a Token Across Workers (Distributed Training)
+
+Authenticate once in a coordinator process and share the token with many workers via a file, so thousands of workers don't all re-authenticate at the same instant.
+
+```python
+# --- Coordinator (holds the client credentials) ---
+from rapidata import RapidataClient
+
+coordinator = RapidataClient(leeway=300)  # renew 5 min before expiry
+# Writes the file now, then keeps it fresh from a background thread.
+# .join() blocks forever; drop it if the coordinator also does other work.
+coordinator.maintain_token_file("/shared/rapidata_token.json").join()
+```
+
+```python
+# --- Worker (never sees the client secret) ---
+from rapidata import RapidataClient
+
+client = RapidataClient(token_file="/shared/rapidata_token.json")
+# or set RAPIDATA_TOKEN_FILE and construct with no arguments.
+# The SDK re-reads the file whenever the in-memory token nears expiry.
+```
+
+Rolling your own file writer with `get_token()`:
+
+```python
+import json, os, time
+from rapidata import RapidataClient
+
+TOKEN_FILE = "/shared/rapidata_token.json"
+coordinator = RapidataClient(leeway=300)
+os.makedirs(os.path.dirname(TOKEN_FILE), exist_ok=True)
+
+def write_token(token: dict) -> None:
+    tmp = TOKEN_FILE + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(token, f)          # keep the absolute expires_at field
+    os.replace(tmp, TOKEN_FILE)      # atomic: workers never read a half-written file
+
+while True:
+    write_token(coordinator.get_token())  # only re-auths when near expiry
+    time.sleep(60)
+```
+
 ## Legacy Order API
 
 ```python
