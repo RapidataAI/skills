@@ -9,7 +9,7 @@ Rapidata connects you with distributed human labelers worldwide for fast, high-q
 
 ## Before you start: check the skill is up to date
 
-This skill is pinned to **Rapidata SDK v3.15.5**. Run this check **once at the start of a Rapidata task** (not on every call) to confirm the user's runtime matches the skill:
+This skill is pinned to **Rapidata SDK v3.15.6**. Run this check **once at the start of a Rapidata task** (not on every call) to confirm the user's runtime matches the skill:
 
 ```bash
 python -c "import rapidata; print(rapidata.__version__)" 2>/dev/null \
@@ -23,7 +23,7 @@ Compare the output to the pinned version above:
      - Re-run the install command to pull the latest: `/install-plugin https://github.com/RapidataAI/skills`, **or**
      - Use the plugin manager: `/plugin` → `rapidata-sdk-plugin` → update.
   2. Tell the user clearly:
-     > ⚠️ The Rapidata skill is pinned to v3.15.5 but v{installed} is installed — the skill docs may be out of date. I've suggested updating the plugin; if the update isn't available yet, I'll proceed with the documented API and flag any surprises.
+     > ⚠️ The Rapidata skill is pinned to v3.15.6 but v{installed} is installed — the skill docs may be out of date. I've suggested updating the plugin; if the update isn't available yet, I'll proceed with the documented API and flag any surprises.
   3. Proceed using the documented API. If you hit an unexpected error (missing attribute, changed signature), stop and tell the user the skill is likely the cause — don't guess at the new API.
 
 - **Installed < pinned** — the user's runtime is older than this skill. Suggest `pip install -U rapidata` so the runtime matches.
@@ -92,11 +92,11 @@ job_def = client.job.create_classification_job_definition(
     responses_per_datapoint=10,
 )
 
-# 3. Preview (opens browser to see what labelers will see)
-job_def.preview()
-
-# 4. Assign to audience (starts labeling)
+# 3. Assign to audience (starts labeling)
 job = audience.assign_job(job_def)
+
+# 4. Watch responses come in (opens browser on the running job)
+job.view()
 
 # 5. Monitor and get results
 job.display_progress_bar()
@@ -479,7 +479,7 @@ settings=[CustomSetting(key="my_flag", value="on")]              # Rapid-level f
 
 ## Key Gotchas
 
-1. **Always preview first** — call `.preview()` before assigning to catch instruction issues early
+1. **Watch early responses** — after assigning, call `job.view()` to open the running job in the browser and check that labelers understand the instruction as intended
 2. **Use `NoShuffleSetting()` for Likert scales** — ordered answer options get shuffled by default
 3. **Min 3 audience examples** — custom audiences need at least 3 qualification examples before recruiting
    - **One audience = one task.** A custom audience is qualified for the specific task its examples describe. Reusing it for a different, unrelated task is a misuse — the qualification no longer applies and the quality guarantee is lost. Reuse it only for repeated/scheduled runs of the *same* task; spin up a new audience for a new task.

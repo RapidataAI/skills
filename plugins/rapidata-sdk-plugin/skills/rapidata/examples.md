@@ -14,8 +14,8 @@ job_def = client.job.create_classification_job_definition(
     answer_options=["Cat", "Dog", "Bird"],
     datapoints=["img1.jpg", "img2.jpg"],
 )
-job_def.preview()
 job = audience.assign_job(job_def)
+job.view()
 job.display_progress_bar()
 results = job.get_results()
 df = results.to_pandas()
@@ -61,8 +61,8 @@ job_def = client.job.create_compare_job_definition(
     confidence_threshold=0.99,
     a_b_names=["Flux", "Midjourney"],
 )
-job_def.preview()
 job = audience.assign_job(job_def)
+job.view()
 job.display_progress_bar()
 results = job.get_results()
 ```
@@ -83,8 +83,8 @@ job_def = client.job.create_classification_job_definition(
     responses_per_datapoint=10,  # Maximum responses
     quorum_threshold=7,          # Stop when 7 responses agree
 )
-job_def.preview()
 job = audience.assign_job(job_def)
+job.view()
 job.display_progress_bar()
 results = job.get_results()
 ```
@@ -122,8 +122,8 @@ job_def = client.job.create_locate_job_definition(
     datapoints=["img1.jpg", "img2.jpg", "img3.jpg"],
     responses_per_datapoint=35,
 )
-job_def.preview()
 job = audience.assign_job(job_def)
+job.view()
 job.display_progress_bar()
 results = job.get_results()
 ```
@@ -157,8 +157,8 @@ job_def = client.job.create_locate_job_definition(
     datapoints=["img1.jpg", "img2.jpg", "img3.jpg"],
     responses_per_datapoint=35,
 )
-job_def.preview()
 job = audience.assign_job(job_def)
+job.view()
 job.display_progress_bar()
 results = job.get_results()
 ```
@@ -179,8 +179,8 @@ job_def = client.job.create_draw_job_definition(
     datapoints=["img1.jpg", "img2.jpg", "img3.jpg"],
     responses_per_datapoint=35,
 )
-job_def.preview()
 job = audience.assign_job(job_def)
+job.view()
 job.display_progress_bar()
 results = job.get_results()
 ```
@@ -214,8 +214,8 @@ job_def = client.job.create_draw_job_definition(
     datapoints=["img1.jpg", "img2.jpg", "img3.jpg"],
     responses_per_datapoint=35,
 )
-job_def.preview()
 job = audience.assign_job(job_def)
+job.view()
 job.display_progress_bar()
 results = job.get_results()
 ```
@@ -244,8 +244,8 @@ job_def = client.job.create_select_words_job_definition(
     sentences=SENTENCES,
     responses_per_datapoint=15,
 )
-job_def.preview()
 job = audience.assign_job(job_def)
+job.view()
 job.display_progress_bar()
 results = job.get_results()
 ```
@@ -264,8 +264,8 @@ job_def = client.job.create_free_text_job_definition(
     datapoints=["image.jpg"],
     responses_per_datapoint=15,
 )
-job_def.preview()
 job = audience.assign_job(job_def)
+job.view()
 job.display_progress_bar()
 results = job.get_results()
 ```
@@ -340,8 +340,8 @@ job_def = client.job.create_compare_job_definition(
     responses_per_datapoint=20,
     a_b_names=["Model A", "Model B"],
 )
-job_def.preview()
 job = audience.assign_job(job_def)
+job.view()
 job.display_progress_bar()
 results = job.get_results()
 ```
@@ -437,8 +437,8 @@ job_def = client.job.create_ranking_job_definition(
     comparison_budget_per_ranking=50,
     random_comparisons_ratio=0.5,
 )
-job_def.preview()
 job = audience.assign_job(job_def)
+job.view()
 job.display_progress_bar()
 results = job.get_results()
 ```
