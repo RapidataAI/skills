@@ -771,7 +771,7 @@ When Rapidata is queried from a large distributed job (e.g. hundreds or thousand
 |-----------|------|-------------|
 | `leeway` | int | Seconds before token expiry at which the SDK refreshes/re-reads the token (default 60). A coordinator typically uses a larger value, e.g. `leeway=300`, to renew well before workers need a fresh token |
 | `token_file` | str | Path to a shared token file to read the access token from; the SDK re-reads it whenever the in-memory token is within `leeway` of expiry. Also settable via the `RAPIDATA_TOKEN_FILE` env var |
-| `token` | dict | An access-token dict passed directly (older pattern); the SDK never re-reads it, so a new client must be constructed once the token expires |
+| `token` | dict | An access-token dict passed directly; the SDK never re-reads it, so inject a fresh one with `client.set_token(...)` (or construct a new client) once the token expires |
 
 ### `client.maintain_token_file(path) → thread`
 
@@ -780,6 +780,10 @@ Writes the token file at `path` immediately, then keeps rewriting it atomically 
 ### `client.get_token() → dict`
 
 Returns the current access token as a dict. Cheap to call at any frequency: it only contacts the auth server once the token is within `leeway` of expiry. Use it to write the shared token file yourself (write atomically, and keep the absolute `expires_at` field so workers know when to re-read).
+
+### `client.set_token(token) → None`
+
+The counterpart to `get_token()`: replace the token a running client authenticates with, effective from its next request, without reconstructing the client. Expects the complete token object (`access_token`, `token_type`, and an absolute `expires_at` timestamp — pass what `get_token()` returned). Together, `get_token()` and `set_token()` let you move the token over any transport (key-value store, RPC, secret manager, message queue) — a **push** system (the coordinator distributes a fresh token to every worker before the old one expires, each worker applies it with `set_token`) or a **pull** system (each worker periodically fetches the current token from your own endpoint).
 
 ```python
 from rapidata import RapidataClient
@@ -790,6 +794,11 @@ coordinator.maintain_token_file("/shared/rapidata_token.json").join()
 
 # Worker: reads the shared token, never sees the client secret
 client = RapidataClient(token_file="/shared/rapidata_token.json")
+
+# Any transport: export from the coordinator, inject into a worker
+token = coordinator.get_token()          # refreshes first if near expiry
+worker = RapidataClient(token=token)     # bootstrap a worker from a token object
+worker.set_token(coordinator.get_token())  # renew a running worker later
 ```
 
 ## Context Management

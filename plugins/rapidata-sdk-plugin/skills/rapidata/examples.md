@@ -777,6 +777,21 @@ while True:
     time.sleep(60)
 ```
 
+The file is just one transport. To move the token over any transport (key-value store, RPC, secret manager, message queue), pair `get_token()` on the coordinator with `set_token()` on the worker — no shared file needed:
+
+```python
+from rapidata import RapidataClient
+
+# --- Coordinator: export the current token (refreshes it first if near expiry) ---
+token = coordinator.get_token()
+# ... distribute `token` through any transport you like ...
+
+# --- Worker: bootstrap directly from a token object, then renew in place ---
+worker = RapidataClient(token=token)
+# Later, when a fresh token arrives, inject it without reconstructing the client:
+worker.set_token(fresh_token)  # used from the next request on
+```
+
 ## Legacy Order API
 
 ```python

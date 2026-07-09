@@ -9,7 +9,7 @@ Rapidata connects you with distributed human labelers worldwide for fast, high-q
 
 ## Before you start: check the skill is up to date
 
-This skill is pinned to **Rapidata SDK v3.16.1**. Run this check **once at the start of a Rapidata task** (not on every call) to confirm the user's runtime matches the skill:
+This skill is pinned to **Rapidata SDK v3.16.2**. Run this check **once at the start of a Rapidata task** (not on every call) to confirm the user's runtime matches the skill:
 
 ```bash
 python -c "import rapidata; print(rapidata.__version__)" 2>/dev/null \
@@ -23,7 +23,7 @@ Compare the output to the pinned version above:
      - Re-run the install command to pull the latest: `/install-plugin https://github.com/RapidataAI/skills`, **or**
      - Use the plugin manager: `/plugin` → `rapidata-sdk-plugin` → update.
   2. Tell the user clearly:
-     > ⚠️ The Rapidata skill is pinned to v3.16.1 but v{installed} is installed — the skill docs may be out of date. I've suggested updating the plugin; if the update isn't available yet, I'll proceed with the documented API and flag any surprises.
+     > ⚠️ The Rapidata skill is pinned to v3.16.2 but v{installed} is installed — the skill docs may be out of date. I've suggested updating the plugin; if the update isn't available yet, I'll proceed with the documented API and flag any surprises.
   3. Proceed using the documented API. If you hit an unexpected error (missing attribute, changed signature), stop and tell the user the skill is likely the cause — don't guess at the new API.
 
 - **Installed < pinned** — the user's runtime is older than this skill. Suggest `pip install -U rapidata` so the runtime matches.
@@ -71,7 +71,9 @@ client = RapidataClient(token_file="/shared/rapidata_token.json")
 # in-memory token is within 60s of expiry (configurable via leeway).
 ```
 
-The token file contains a bearer token — write it only to storage your job alone can access. To roll your own file writer, export the current token with `coordinator.get_token()` (cheap to call at any frequency; only contacts the auth server once the token is within `leeway` of expiry), write it atomically, and keep the absolute `expires_at` field so workers know when to re-read. On older SDKs without `token_file`, pass the token dict directly with `RapidataClient(token=json.load(f))` — but the SDK never re-reads it, so each worker must construct a new client when the token expires.
+The token file contains a bearer token — write it only to storage your job alone can access. To roll your own file writer, export the current token with `coordinator.get_token()` (cheap to call at any frequency; only contacts the auth server once the token is within `leeway` of expiry), write it atomically, and keep the absolute `expires_at` field so workers know when to re-read.
+
+The file is just one transport. To move the token over any transport (key-value store, RPC, secret manager, message queue), pair `coordinator.get_token()` with `worker.set_token(fresh_token)`, which injects a fresh token into a running worker client (effective from its next request) without reconstructing it. This supports both a **push** system (the coordinator distributes a fresh token to every worker before the old one expires) and a **pull** system (each worker periodically fetches the current token from your own endpoint). Whatever the transport, pass the complete token object around and keep its absolute `expires_at` field. On older SDKs without `token_file`, pass the token dict directly with `RapidataClient(token=json.load(f))` — but the SDK never re-reads it, so each worker must call `set_token()` (or construct a new client) when the token expires.
 
 ## Core Concepts
 
