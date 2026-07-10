@@ -408,6 +408,8 @@ This is an **estimate, not the final bill**: it is based on a sample of the job'
 
 All settings inherit from `RapidataSetting` and are importable from `rapidata`.
 
+Most settings only apply to specific task types. If you add a setting that the job's task type does not support, the SDK logs a non-fatal warning and still sends the flag — it is never dropped and no error is raised. Ranking jobs are treated as Compare for this check.
+
 | Class | Constructor | Effect |
 |-------|-------------|--------|
 | `NoShuffleSetting` | `(value: bool = True)` | Disable shuffling of answer options (Likert scales) |
