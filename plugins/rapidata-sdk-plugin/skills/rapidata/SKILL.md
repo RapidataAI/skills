@@ -9,7 +9,7 @@ Rapidata connects you with distributed human labelers worldwide for fast, high-q
 
 ## Before you start: check the skill is up to date
 
-This skill is pinned to **Rapidata SDK v3.16.4**. Run this check **once at the start of a Rapidata task** (not on every call) to confirm the user's runtime matches the skill:
+This skill is pinned to **Rapidata SDK v3.16.7**. Run this check **once at the start of a Rapidata task** (not on every call) to confirm the user's runtime matches the skill:
 
 ```bash
 python -c "import rapidata; print(rapidata.__version__)" 2>/dev/null \
@@ -23,7 +23,7 @@ Compare the output to the pinned version above:
      - Re-run the install command to pull the latest: `/install-plugin https://github.com/RapidataAI/skills`, **or**
      - Use the plugin manager: `/plugin` → `rapidata-sdk-plugin` → update.
   2. Tell the user clearly:
-     > ⚠️ The Rapidata skill is pinned to v3.16.4 but v{installed} is installed — the skill docs may be out of date. I've suggested updating the plugin; if the update isn't available yet, I'll proceed with the documented API and flag any surprises.
+     > ⚠️ The Rapidata skill is pinned to v3.16.7 but v{installed} is installed — the skill docs may be out of date. I've suggested updating the plugin; if the update isn't available yet, I'll proceed with the documented API and flag any surprises.
   3. Proceed using the documented API. If you hit an unexpected error (missing attribute, changed signature), stop and tell the user the skill is likely the cause — don't guess at the new API.
 
 - **Installed < pinned** — the user's runtime is older than this skill. Suggest `pip install -U rapidata` so the runtime matches.
@@ -384,15 +384,15 @@ examples_df = audience.get_examples(amount=10, page=1)
 - `client.audience.find_audiences(name="", amount=10, page=1)` — list your audiences (newest first), optionally filtered by name
 
 **Audience methods:**
-- `audience.assign_job(job_definition)` — start a job
+- `audience.assign_job(job_definition)` — start a job. Never blocks on funds: the job is always created, but if its estimated cost exceeds your account balance a cost warning is logged (with the estimate, your balance, and the shortfall) and the job may pause partway until you top up.
 - `audience.find_jobs(name="filter", amount=10, page=1)` — find assigned jobs
 - `audience.update_filters([...])` — set the recruitment filters on this audience (audience-supported filters only — see below)
-- `audience.filter([filters])` — derive a filtered subset of this audience without re-onboarding labelers; supports `CountryFilter`, `LanguageFilter`, and `DemographicFilter`, plus the `AndFilter`/`OrFilter`/`NotFilter` combinators (also via `&` / `|` / `~`); returns a `RapidataFilteredAudience` (exposes `assign_job`, `find_jobs`, `delete` only — no `add_classification_example`, `update_filters`, or nested `.filter()`)
+- `audience.filter([filters])` — derive a filtered subset of this audience without re-onboarding labelers; supports `CountryFilter`, `LanguageFilter`, `DemographicFilter`, `AgeFilter`, `GenderFilter`, and `DeviceFilter`, plus the `AndFilter`/`OrFilter`/`NotFilter` combinators (also via `&` / `|` / `~`); returns a `RapidataFilteredAudience` (exposes `assign_job`, `find_jobs`, `delete` only — no `add_classification_example`, `update_filters`, or nested `.filter()`)
 - `audience.update_name("New Name")` — rename
 - `audience.get_examples(amount=10, page=1)` — list qualification examples (returns DataFrame)
 - `audience.delete()` — delete the audience
 
-**Audience-supported filters:** `update_filters(...)` (recruitment filters) accepts `CountryFilter` and `LanguageFilter`; `.filter(...)` (deriving a filtered audience from graduates) additionally accepts `DemographicFilter` (age/gender/occupation). Both accept the `AndFilter`/`OrFilter`/`NotFilter` combinators. `UserScoreFilter`, `AgeFilter`, `GenderFilter`, `DeviceFilter`, `CampaignFilter`, and `CustomFilter` are **order-only** and raise `NotImplementedError` on audiences — pass them as `filters=[...]` to `client.order.create_*_order(...)` instead.
+**Audience-supported filters:** `update_filters(...)` (recruitment filters) accepts `CountryFilter` and `LanguageFilter`; `.filter(...)` (deriving a filtered audience from graduates) additionally accepts `DemographicFilter` (age/gender/occupation), `AgeFilter`, `GenderFilter`, and `DeviceFilter`. Both accept the `AndFilter`/`OrFilter`/`NotFilter` combinators. `UserScoreFilter`, `CampaignFilter`, and `CustomFilter` are **order-only** and raise `NotImplementedError` on audiences — pass them as `filters=[...]` to `client.order.create_*_order(...)` instead.
 
 **Job / Job Definition methods:**
 - `job_def.preview()` — open browser preview of what labelers see
@@ -401,7 +401,7 @@ examples_df = audience.get_examples(amount=10, page=1)
 - `job_def.delete()` — delete a job definition and all its revisions
 - `job.display_progress_bar(refresh_rate=5)` — blocking progress bar
 - `job.get_status()` — current status string
-- `job.get_results()` — blocks until Completed/Failed (auto-regenerates if `StaleResults`), returns `RapidataResults`
+- `job.get_results()` — blocks until Completed/Failed (auto-regenerates if `StaleResults`), returns `RapidataResults`. If the job needs manual review (`ManualApproval`) or runs out of funds mid-run (`SpendLimited`) — neither state completes on its own — it raises an informative error naming the state instead of blocking; top up or wait for a reviewer, then call it again.
 - `job.view()` — open the job's details page in the browser
 - `job.delete()` — delete a running job
 
@@ -520,6 +520,7 @@ settings=[CustomSetting(key="my_flag", value="on")]              # Rapid-level f
 8. **Failed uploads don't block job creation** — a `FailedUploadException` is raised but the job is still created with successful datapoints; access the partial object via `e.job_definition` or `e.order`
 9. **QR code printed on job/order creation** — when a job definition is created or an order enters preview, a terminal QR code linking to the campaign preview is printed automatically so you can open it on a phone; suppress it with `rapidata_config.logging.silent_mode = True`
 10. **Context length limit is 400 characters** — the backend rejects contexts longer than 400 characters; a warning is logged at creation time. Set `rapidata_config.upload.autoShortenContext = True` to have over-long contexts automatically shortened against the task instruction before upload, or use `client.context.shorten_context()` / `client.context.shorten_contexts()` to shorten manually.
+11. **Jobs can pause for manual review or funds** — `assign_job` always creates the job, but if its estimated cost exceeds your account balance it logs a cost warning and the job may pause until you top up. A job can also enter manual review (`ManualApproval`) or become spend-limited (`SpendLimited`) mid-run; since neither state completes on its own, `get_results()` raises an informative error naming the state instead of blocking — top up or wait for a reviewer, then retry.
 
 ## Ranking Flows (Continuous Ranking)
 

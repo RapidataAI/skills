@@ -188,8 +188,9 @@ client.order.create_classification_order(
 )
 
 # Derive a filtered subset of a trained audience without re-onboarding labelers.
-# Supported filters for .filter(): CountryFilter, LanguageFilter, DemographicFilter
-# (plus And/Or/Not combinators). For age, use the AgeGroup enum's .value.
+# Supported filters for .filter(): CountryFilter, LanguageFilter, DemographicFilter,
+# AgeFilter, GenderFilter, DeviceFilter (plus And/Or/Not combinators).
+# For DemographicFilter age, use the AgeGroup enum's .value.
 filtered = base_audience.filter([
     CountryFilter(["US"]),
     LanguageFilter(["en"]),
@@ -211,16 +212,16 @@ us_or_ca_not_fr = base_audience.filter([
 | `LanguageFilter` | `(language_codes: list[str])` | yes |
 | `DemographicFilter` | `(identifier: str, values: list[str])` | `.filter()` only |
 | `UserScoreFilter` | `(lower_bound: float = 0.0, upper_bound: float = 1.0, dimension: str \| None = None)` | orders only |
-| `AgeFilter` | `(age_groups: list[AgeGroup])` | orders only |
-| `GenderFilter` | `(genders: list[Gender])` | orders only |
-| `DeviceFilter` | `(device_types: list[DeviceType])` | orders only |
+| `AgeFilter` | `(age_groups: list[AgeGroup])` | orders and `.filter()` |
+| `GenderFilter` | `(genders: list[Gender])` | orders and `.filter()` |
+| `DeviceFilter` | `(device_types: list[DeviceType])` | orders and `.filter()` |
 | `CampaignFilter` | `(campaign_ids: list[str])` | orders only |
 | `CustomFilter` | `(identifier: str, values: list[str])` | orders only |
 | `NotFilter` | `(filter: RapidataFilter)` | both |
 | `OrFilter` | `(filters: list[RapidataFilter])` | both |
 | `AndFilter` | `(filters: list[RapidataFilter])` | both |
 
-Note: recruitment filters set with `audience.update_filters(...)` are limited to `CountryFilter`, `LanguageFilter`, and the `And`/`Or`/`Not` combinators. `audience.filter(...)` (deriving a filtered audience from graduates) additionally accepts `DemographicFilter` (age/gender/occupation). `UserScoreFilter`, `AgeFilter`, `GenderFilter`, `DeviceFilter`, `CampaignFilter`, and `CustomFilter` cannot be attached to audiences at all (they raise `NotImplementedError`) — use them as `filters=[...]` on `client.order.create_*_order(...)` instead.
+Note: recruitment filters set with `audience.update_filters(...)` are limited to `CountryFilter`, `LanguageFilter`, and the `And`/`Or`/`Not` combinators. `audience.filter(...)` (deriving a filtered audience from graduates) additionally accepts `DemographicFilter` (age/gender/occupation), `AgeFilter`, `GenderFilter`, and `DeviceFilter`. `UserScoreFilter`, `CampaignFilter`, and `CustomFilter` cannot be attached to audiences at all (they raise `NotImplementedError`) — use them as `filters=[...]` on `client.order.create_*_order(...)` instead.
 
 ## Selections (Order API only)
 
@@ -276,12 +277,16 @@ EffortSelection(effort_budget=60)    # seconds of effort per session
 
 ```json
 {
-  "summary": { "A_wins_total": 5, "B_wins_total": 3 },
+  "info": { "type": "Compare", "name": "Image Comparison", "instruction": "Which image is higher quality?" },
   "results": [
     {
       "context": "A small blue book...",
       "winner_index": 1,
       "winner": "model_b.jpg",
+      "assetUrls": {
+        "model_a.jpg": "https://assets.rapidata.ai/<random-uuid>.jpg",
+        "model_b.jpg": "https://assets.rapidata.ai/<random-uuid>.jpg"
+      },
       "aggregatedResults": { "model_a.jpg": 3, "model_b.jpg": 5 },
       "aggregatedResultsRatios": { "model_a.jpg": 0.375, "model_b.jpg": 0.625 },
       "summedUserScores": { "model_a.jpg": 1.0, "model_b.jpg": 2.5 },
@@ -297,7 +302,8 @@ EffortSelection(effort_budget=60)    # seconds of effort per session
         }
       ]
     }
-  ]
+  ],
+  "summary": { "A_wins_total": 5, "B_wins_total": 3 }
 }
 ```
 
@@ -305,6 +311,8 @@ EffortSelection(effort_budget=60)    # seconds of effort per session
 
 | Field | Meaning |
 |-------|---------|
+| `info.type` / `info.name` / `info.instruction` | Task type (e.g. `Compare`, `Classify`), the job/order name, and the instruction shown to labelers |
+| `assetUrls` | Maps each option to the Rapidata-hosted URL of the exact file shown to labelers (random-UUID filenames; not encrypted) |
 | `winner` | Most-voted option (weighted by userScores) |
 | `aggregatedResults` | Raw vote counts |
 | `aggregatedResultsRatios` | Vote percentages |
@@ -312,6 +320,8 @@ EffortSelection(effort_budget=60)    # seconds of effort per session
 | `summedUserScoresRatios` | Weighted voting proportions |
 | `confidencePerCategory` | Confidence level per category (with early stopping) |
 | `userScore` | 0-1 value indicating individual labeler reliability |
+
+A labeler's `demographics` may be empty when no demographic data was collected for them.
 
 ### Working with Results
 
@@ -465,6 +475,12 @@ except FailedUploadException as e:
 **Properties:** `failed_uploads` (list[Datapoint] — backward-compatible), `detailed_failures` (list[FailedUpload[Datapoint]]), `failures_by_reason` (dict[str, list[Datapoint]]), `job_definition`, `order`, `dataset`.
 
 **Recovery docs:** https://docs.rapidata.ai/3.x/error_handling/
+
+### Jobs under review or out of funds
+
+`assign_job` never blocks on funds: the job is always created. If its estimated cost exceeds your account balance, `assign_job` logs a warning with the estimate, your balance, and the expected shortfall — the job still runs, but may pause partway until you top up.
+
+Some jobs don't go straight to running. A job can enter manual review (`ManualApproval`) or, once out of funds mid-run, become spend-limited (`SpendLimited`). Neither state completes on its own, so `get_results()` raises an informative error naming the state (and the review reason, when available) instead of blocking indefinitely — top up or wait for a reviewer, then call it again.
 
 ## Ranking Flows (Continuous Ranking)
 

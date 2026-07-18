@@ -361,9 +361,10 @@ audience.update_filters([
 ])
 # Add examples, then assign jobs as normal.
 # update_filters sets recruitment filters: CountryFilter / LanguageFilter (+ And/Or/Not).
-# UserScoreFilter / AgeFilter / GenderFilter / DeviceFilter are order-only and raise
+# UserScoreFilter / CampaignFilter / CustomFilter are order-only and raise
 # NotImplementedError here — pass them to client.order.create_*_order(filters=[...]).
-# DemographicFilter applies to graduates, so use it with audience.filter(...) (see below).
+# DemographicFilter / AgeFilter / GenderFilter / DeviceFilter apply to graduates, so
+# use them with audience.filter(...) (see below).
 ```
 
 ## Filtered Audience
