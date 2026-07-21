@@ -131,7 +131,10 @@ audience = client.audience.create_audience(name="Expert Evaluators", filters=Non
 audience = client.audience.get_audience_by_id("global")            # or "aud_..." / any audience id
 audiences = client.audience.find_audiences(name="", amount=10, page=1)   # your audiences, newest first
 
-# Train a custom audience (min 3 examples before recruiting starts; every truth must be human-reviewed)
+# Train a custom audience. It does NOT start recruiting until it has >=3 examples — assign a job
+# to an under-3 audience and it silently hangs at 0 responses forever (no error). Add >=3 BEFORE
+# assign_job, or use get_audience_by_id("global") if you need no task-specific qualification.
+# (Every truth must be human-reviewed.)
 audience.add_classification_example(instruction=..., answer_options=[...], datapoint=..., truth=[...])
 audience.add_compare_example(instruction=..., datapoint=[...], truth=...)
 audience.add_locate_example(instruction=..., datapoint=..., truths=[Box(...)])     # requires: from rapidata import Box

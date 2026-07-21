@@ -359,7 +359,38 @@ audience.update_filters([
     CountryFilter(country_codes=["US", "CA"]),
     LanguageFilter(language_codes=["en"]),
 ])
-# Add examples, then assign jobs as normal.
+
+# A custom audience does NOT start recruiting until it has >=3 qualification examples.
+# Assign a job before adding them and it silently hangs at 0 responses forever — no error.
+# So add the examples FIRST, then assign the job.
+EXAMPLES = [
+    ("clear.jpg", ["Excellent"]),
+    ("decent.jpg", ["Good"]),
+    ("blurry.jpg", ["Poor"]),
+]
+for datapoint, truth in EXAMPLES:
+    audience.add_classification_example(
+        instruction="Rate the image quality",
+        answer_options=["Poor", "Good", "Excellent"],
+        datapoint=datapoint,
+        truth=truth,
+        data_type="media",
+    )
+
+job_def = client.job.create_classification_job_definition(
+    name="Image Quality (US/EN)",
+    instruction="Rate the image quality",
+    answer_options=["Poor", "Good", "Excellent"],
+    datapoints=["img1.jpg", "img2.jpg"],
+    responses_per_datapoint=10,
+)
+job = audience.assign_job(job_def)
+job.display_progress_bar()
+results = job.get_results()
+
+# If you DON'T need task-specific qualification, skip create_audience + examples entirely
+# and use the ready-to-go global pool: client.audience.get_audience_by_id("global").
+#
 # update_filters sets recruitment filters: CountryFilter / LanguageFilter (+ And/Or/Not).
 # UserScoreFilter / CampaignFilter / CustomFilter are order-only and raise
 # NotImplementedError here — pass them to client.order.create_*_order(filters=[...]).
