@@ -151,6 +151,8 @@ for datapoint, truths in EXAMPLES:
         explanation="The artifact is within the highlighted region.",
     )
 
+audience.start_recruiting()  # required — assign_job before this hangs at 0 responses forever
+
 job_def = client.job.create_locate_job_definition(
     name="Artifact Detection",
     instruction="Tap on any visual glitches or errors in the image.",
@@ -207,6 +209,8 @@ for datapoint, truths in EXAMPLES:
         truths=truths,
         explanation="The artifact is within the highlighted region.",
     )
+
+audience.start_recruiting()  # required — assign_job before this hangs at 0 responses forever
 
 job_def = client.job.create_draw_job_definition(
     name="Artifact Drawing",
@@ -328,6 +332,10 @@ for prompt, datapoint in zip(PROMPTS, DATAPOINTS):
 # Inspect the examples we just added
 print(audience.get_examples())
 
+# Start recruiting once the examples are added and reviewed — required and explicit.
+# assign_job before this leaves the audience in Created and the job hangs at 0 responses.
+audience.start_recruiting()
+
 # Create and run job
 job_def = client.job.create_compare_job_definition(
     name="Production Comparison",
@@ -360,9 +368,9 @@ audience.update_filters([
     LanguageFilter(language_codes=["en"]),
 ])
 
-# A custom audience does NOT start recruiting until it has >=3 qualification examples.
-# Assign a job before adding them and it silently hangs at 0 responses forever — no error.
-# So add the examples FIRST, then assign the job.
+# Recruiting is explicit: a custom audience recruits nobody until you add >=3 qualification
+# examples AND then call start_recruiting(). Assign a job before recruiting starts and it
+# silently hangs at 0 responses forever — no error. So: add examples, start_recruiting, THEN assign.
 EXAMPLES = [
     ("clear.jpg", ["Excellent"]),
     ("decent.jpg", ["Good"]),
@@ -376,6 +384,8 @@ for datapoint, truth in EXAMPLES:
         truth=truth,
         data_type="media",
     )
+
+audience.start_recruiting()  # required — without this the job below never gets responses
 
 job_def = client.job.create_classification_job_definition(
     name="Image Quality (US/EN)",

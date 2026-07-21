@@ -81,7 +81,7 @@ The file is just one transport. To move the token over any transport (key-value 
 - **Audience**: A group of annotators selected and qualified for **one specific task** — via qualification examples and/or recruitment filters chosen to match that task. The whole point is to put the *right* people on *that* task. An audience trained for one task is **not** meant to be reused on a different, unrelated task: its qualification examples define what "good" means for the original task only, so reusing it elsewhere silently loses the quality it was built for. Reusing the same audience for repeated or scheduled runs of the **same** task is exactly right; for a different task, create a new audience. Three kinds:
   - **global** — the generic baseline pool for tasks that need no special qualification; instant, no setup. Use `client.audience.get_audience_by_id("global")`.
   - **curated** — pre-trained on a domain (e.g. alignment via `aud_MU1GZYoESyO`).
-  - **custom** — trained with your own task-specific qualification examples (`client.audience.create_audience(...)` + `add_*_example(...)`). ⚠️ A custom audience does **not** begin recruiting until it has **≥3 qualification examples** — assign a job before then and it silently sits at **0 responses forever** (no error is raised, it just never completes). Add ≥3 examples *before* `assign_job`, or use `"global"` when you don't need task-specific qualification.
+  - **custom** — trained with your own task-specific qualification examples (`client.audience.create_audience(...)` + `add_*_example(...)` + `start_recruiting()`). ⚠️ Recruiting is **explicit**: a custom audience recruits nobody until you add **≥3 qualification examples** *and then* call `audience.start_recruiting()`. Adding examples does **not** start recruiting on its own; assign a job before recruiting has started and it silently sits at **0 responses forever** (no error is raised, it just never completes). Use `"global"` when you don't need task-specific qualification.
 - **Job**: A running instance of a job definition assigned to an audience
 - **Flow**: Lightweight continuous ranking without full job setup
 - **MRI/Benchmark**: Compare and rank AI models on leaderboards
@@ -110,8 +110,10 @@ client = RapidataClient()
 audience = client.audience.get_audience_by_id("global")
 # Curated domain pool (e.g. alignment): client.audience.get_audience_by_id("aud_MU1GZYoESyO")
 # Only if you need task-specific qualification: client.audience.create_audience(name="My Evaluators")
-#   — but you MUST add >=3 qualification examples (add_*_example) BEFORE assign_job, or the
-#   audience never starts recruiting and the job hangs at 0 responses forever. See "Custom Audiences".
+#   — but recruiting is explicit: you MUST add >=3 qualification examples (add_*_example) AND
+#   then call audience.start_recruiting() BEFORE assign_job. Adding examples does not start
+#   recruiting; a job assigned before recruiting starts hangs at 0 responses forever (no error).
+#   See "Custom Audiences".
 
 # 2. Create a job definition
 job_def = client.job.create_classification_job_definition(
@@ -320,7 +322,7 @@ job_def = client.job.create_free_text_job_definition(
 
 Create an audience trained on your specific task.
 
-⚠️ **A custom audience with fewer than 3 qualification examples never starts recruiting labelers.** A job assigned to such an audience does **not** error — it silently sits at **0 responses and never completes** (`display_progress_bar()` / `get_results()` block forever). You **must** add **≥3 examples** with `add_*_example(...)` *before* calling `assign_job`. If you don't need task-specific qualification, skip all of this and use the ready-to-go global pool with no setup: `client.audience.get_audience_by_id("global")`.
+⚠️ **Recruiting is explicit — you must start it yourself.** A custom audience recruits nobody until you (1) add **≥3 qualification examples** with `add_*_example(...)` and (2) call `audience.start_recruiting()`. Adding examples does **not** start recruiting; until `start_recruiting()` is called the audience stays in its `Created` state. A job assigned to an audience that hasn't started recruiting does **not** error — it silently sits at **0 responses and never completes** (`display_progress_bar()` / `get_results()` block forever). Call `start_recruiting()` **once**, after all examples are added and reviewed, before `assign_job`. If you don't need task-specific qualification, skip all of this and use the ready-to-go global pool with no setup: `client.audience.get_audience_by_id("global")`.
 
 **Important:** Every qualification example and its associated truth must be manually and thoroughly reviewed by a human before use. If an example has a wrong or ambiguous truth value, the qualification process will filter out good labelers who answer correctly while letting through bad labelers who happen to match the incorrect answer — completely inverting quality control. Always verify that each example has a clear, unambiguous correct answer.
 
@@ -381,6 +383,13 @@ audience.add_select_words_example(
 
 # Inspect the examples currently on the audience
 examples_df = audience.get_examples(amount=10, page=1)
+
+# Once >=3 examples are added and reviewed, start recruiting. This is required and explicit:
+# adding examples does not start it, and assign_job before this hangs at 0 responses forever.
+audience.start_recruiting()
+
+# Now the audience recruits against the examples; assign a job as usual.
+job = audience.assign_job(job_def)
 ```
 
 **Managing audiences (`client.audience`):**
@@ -389,6 +398,8 @@ examples_df = audience.get_examples(amount=10, page=1)
 - `client.audience.find_audiences(name="", amount=10, page=1)` — list your audiences (newest first), optionally filtered by name
 
 **Audience methods:**
+- `audience.start_recruiting()` — begin recruiting/onboarding annotators against the audience's qualification examples. **Required and explicit for custom audiences**: call it once, after adding ≥3 examples and before `assign_job` — adding examples never starts recruiting on its own, and a job assigned before recruiting has started hangs at 0 responses forever. Calling it more than once is a no-op. Not needed for the global/curated pools.
+- `audience.get_recruiting_metrics()` — snapshot of the audience's recruiting funnel (how annotators are distributed across recruiting states); all zeros before `start_recruiting()` has pulled anyone in.
 - `audience.assign_job(job_definition)` — start a job. Never blocks on funds: the job is always created, but if its estimated cost exceeds your account balance a cost warning is logged (with the estimate, your balance, and the shortfall) and the job may pause partway until you top up.
 - `audience.find_jobs(name="filter", amount=10, page=1)` — find assigned jobs
 - `audience.update_filters([...])` — set the recruitment filters on this audience (audience-supported filters only — see below)
@@ -516,7 +527,7 @@ settings=[CustomSetting(key="my_flag", value="on")]              # Rapid-level f
 
 1. **Watch early responses** — after assigning, call `job.view()` to open the running job in the browser and check that labelers understand the instruction as intended
 2. **Use `NoShuffleSetting()` for Likert scales** — ordered answer options get shuffled by default
-3. **Min 3 audience examples** — a custom audience does **not** start recruiting until it has **≥3 qualification examples**. Assign a job to an audience with fewer (e.g. a freshly `create_audience`'d one with none) and it **silently hangs at 0 responses forever** — no error is raised; `get_results()` / `display_progress_bar()` just block indefinitely. Always `add_*_example(...)` (≥3) *before* `assign_job`, or use `client.audience.get_audience_by_id("global")` when you don't need task-specific qualification.
+3. **Custom audiences need ≥3 examples AND an explicit `start_recruiting()`** — recruiting never begins on its own. Add **≥3 qualification examples** (`add_*_example(...)`), then call `audience.start_recruiting()` **once**, before `assign_job`. Skip either step and the audience recruits nobody: the job **silently hangs at 0 responses forever** — no error is raised; `get_results()` / `display_progress_bar()` just block indefinitely. Use `client.audience.get_audience_by_id("global")` when you don't need task-specific qualification.
    - **One audience = one task.** A custom audience is qualified for the specific task its examples describe. Reusing it for a different, unrelated task is a misuse — the qualification no longer applies and the quality guarantee is lost. Reuse it only for repeated/scheduled runs of the *same* task; spin up a new audience for a new task.
 4. **25-second time limit** — labelers have ~25 seconds per task; keep instructions concise
 5. **Responses may exceed `responses_per_datapoint`** — concurrent labelers can cause slight overflow
