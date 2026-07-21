@@ -151,6 +151,8 @@ for datapoint, truths in EXAMPLES:
         explanation="The artifact is within the highlighted region.",
     )
 
+audience.start_recruiting()  # required — assign_job before this hangs at 0 responses forever
+
 job_def = client.job.create_locate_job_definition(
     name="Artifact Detection",
     instruction="Tap on any visual glitches or errors in the image.",
@@ -207,6 +209,8 @@ for datapoint, truths in EXAMPLES:
         truths=truths,
         explanation="The artifact is within the highlighted region.",
     )
+
+audience.start_recruiting()  # required — assign_job before this hangs at 0 responses forever
 
 job_def = client.job.create_draw_job_definition(
     name="Artifact Drawing",
@@ -328,6 +332,10 @@ for prompt, datapoint in zip(PROMPTS, DATAPOINTS):
 # Inspect the examples we just added
 print(audience.get_examples())
 
+# Start recruiting once the examples are added and reviewed — required and explicit.
+# assign_job before this leaves the audience in Created and the job hangs at 0 responses.
+audience.start_recruiting()
+
 # Create and run job
 job_def = client.job.create_compare_job_definition(
     name="Production Comparison",
@@ -359,7 +367,40 @@ audience.update_filters([
     CountryFilter(country_codes=["US", "CA"]),
     LanguageFilter(language_codes=["en"]),
 ])
-# Add examples, then assign jobs as normal.
+
+# Recruiting is explicit: a custom audience recruits nobody until you add >=3 qualification
+# examples AND then call start_recruiting(). Assign a job before recruiting starts and it
+# silently hangs at 0 responses forever — no error. So: add examples, start_recruiting, THEN assign.
+EXAMPLES = [
+    ("clear.jpg", ["Excellent"]),
+    ("decent.jpg", ["Good"]),
+    ("blurry.jpg", ["Poor"]),
+]
+for datapoint, truth in EXAMPLES:
+    audience.add_classification_example(
+        instruction="Rate the image quality",
+        answer_options=["Poor", "Good", "Excellent"],
+        datapoint=datapoint,
+        truth=truth,
+        data_type="media",
+    )
+
+audience.start_recruiting()  # required — without this the job below never gets responses
+
+job_def = client.job.create_classification_job_definition(
+    name="Image Quality (US/EN)",
+    instruction="Rate the image quality",
+    answer_options=["Poor", "Good", "Excellent"],
+    datapoints=["img1.jpg", "img2.jpg"],
+    responses_per_datapoint=10,
+)
+job = audience.assign_job(job_def)
+job.display_progress_bar()
+results = job.get_results()
+
+# If you DON'T need task-specific qualification, skip create_audience + examples entirely
+# and use the ready-to-go global pool: client.audience.get_audience_by_id("global").
+#
 # update_filters sets recruitment filters: CountryFilter / LanguageFilter (+ And/Or/Not).
 # UserScoreFilter / CampaignFilter / CustomFilter are order-only and raise
 # NotImplementedError here — pass them to client.order.create_*_order(filters=[...]).
