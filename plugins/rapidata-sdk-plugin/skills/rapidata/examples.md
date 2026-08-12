@@ -305,8 +305,17 @@ from rapidata import RapidataClient
 
 client = RapidataClient()
 
-# Create and train audience with diverse examples
-audience = client.audience.create_audience(name="Image Quality Experts")
+# Create and train audience with diverse examples.
+# The admission bar is optional: target_accuracy is the fraction of qualification
+# tasks a labeler must get right (server default 0.75), min_tasks how many tasks
+# before that verdict is trusted (default 10), max_tasks an optional cap after
+# which a verdict is forced. Supplying just one is fine — the rest fall back to
+# the defaults.
+audience = client.audience.create_audience(
+    name="Image Quality Experts",
+    target_accuracy=0.8,
+    min_tasks=12,
+)
 
 DATAPOINTS = [
     ["good_example.jpg", "bad_example.jpg"],
@@ -334,7 +343,16 @@ print(audience.get_examples())
 
 # Start recruiting once the examples are added and reviewed — required and explicit.
 # assign_job before this leaves the audience in Created and the job hangs at 0 responses.
+# A backend failure here raises RapidataError instead of being swallowed.
 audience.start_recruiting()
+
+# Follow the recruiting funnel. Counts are mutually exclusive (one bucket per
+# annotator) and all-zero for an audience that has not recruited anyone yet.
+metrics = audience.get_recruiting_metrics()
+print(
+    f"{metrics.graduated} graduated, {metrics.distilling} distilling, "
+    f"{metrics.dropped} dropped, {metrics.inactive} inactive"
+)
 
 # Create and run job
 job_def = client.job.create_compare_job_definition(
@@ -552,24 +570,58 @@ flow.update_config(instruction="Which image looks better overall?", max_response
 ## Model Benchmark (MRI)
 
 ```python
-from rapidata import RapidataClient
+from rapidata import RapidataClient, Tag
 
 client = RapidataClient()
 
 benchmark = client.mri.create_new_benchmark(
     name="Text-to-Image Benchmark",
+    identifiers=["mountain", "city", "wizard"],
     prompts=[
         "A serene mountain landscape",
         "A futuristic city at night",
         "A wise wizard portrait",
     ],
+    # Each inner entry may mix Tag objects and bare strings; a bare string becomes
+    # Tag(value, category=None).
+    tags=[
+        [Tag("outdoor", category="scene"), "nature"],
+        [Tag("outdoor", category="scene"), "urban"],
+        [Tag("portrait", category="subject")],
+    ],
+    # Per-prompt provenance: an Origin or a plain string (mapped to Origin(source)).
+    origins=["coco", "coco", "wikiart"],
 )
 
+# Replace the tags of / set the origin on an already-registered prompt.
+# A field left as None is not sent and stays unchanged.
+benchmark.update_prompt("wizard", tags=["portrait", "fantasy"], origin="wikiart")
+
+# tags is the values-only view (categories dropped, kept for backwards
+# compatibility); structured_tags and origins keep the full objects. All three are
+# aligned by index with benchmark.prompts.
+print(benchmark.tags, benchmark.structured_tags, benchmark.origins)
+
 leaderboard = benchmark.create_leaderboard(
-    name="Prompt Adherence",
+    name="Prompt Adherence (outdoor)",
     instruction="Which image matches the description better?",
     show_prompt=True,
+    # Scope which benchmark prompts this leaderboard collects matchups for: a prompt
+    # is used if it carries an included tag and no excluded one. excluded_tags always
+    # wins, and a non-empty included_tags drops untagged prompts. Matching is on the
+    # tag value only — categories are irrelevant. Applied when a run starts, and fixed
+    # at creation: to re-scope, create a new leaderboard.
+    included_tags=["outdoor"],
+    excluded_tags=["nsfw"],
+    # level_of_detail also accepts a positive integer response budget instead of a
+    # named level ("debug" 20, "low" 2000, "medium" 4000, "high" 8000,
+    # "very high" 16000).
+    level_of_detail=5000,
 )
+
+print(leaderboard.included_tags, leaderboard.excluded_tags)  # copies; [] when unset
+print(leaderboard.response_budget)  # 5000
+print(leaderboard.level_of_detail)  # "custom" — a name only on an exact budget match
 
 # Evaluate models (creates, uploads, and submits in one step)
 benchmark.evaluate_model(
@@ -635,25 +687,38 @@ audience = client.audience.get_audience_by_id("aud_MU1GZYoESyO")
 datapoints = ["valid1.jpg", "broken_url", "valid2.jpg", "missing.jpg"]
 
 try:
+    # failure_tolerance is the fraction of datapoints allowed to fail while still
+    # creating the definition (default 0.0 = strict). At least one datapoint must
+    # always upload successfully.
     job_def = client.job.create_classification_job_definition(
         name="With Failures",
         instruction="What's in this image?",
         answer_options=["Cat", "Dog"],
         datapoints=datapoints,
+        failure_tolerance=0.1,
     )
 except FailedUploadException as e:
-    job_def = e.job_definition
+    # Outside the tolerance NO job definition is created — e.job_definition is None.
     print(f"{len(e.failed_uploads)} of {len(datapoints)} failed to upload")
     for reason, failed in e.failures_by_reason.items():
         print(f"  {reason}: {len(failed)}")
+    # Remote-URL failures are also grouped by ingestion stage (download, redirect,
+    # content_type, decode, timeout, size, validation, internal). Only "internal" is
+    # a Rapidata-side fault; the rest are caller-actionable. Local-file failures have
+    # no stage, so this dict can be empty.
+    for stage, failed in e.failures_by_stage.items():
+        print(f"  stage {stage}: {len(failed)}")
     for fu in e.detailed_failures:
-        print(f"    - {fu.item}: {fu.error_type}: {fu.error_message}")
+        print(f"    - {fu.item}: {fu.error_type}: {fu.error_message} "
+              f"(stage={fu.stage}, http_status={fu.http_status})")
 
-    # Proceed if failure rate is acceptable
-    if len(e.failed_uploads) / len(datapoints) < 0.1:
-        job = audience.assign_job(job_def)
-    else:
-        print("Too many failures, aborting")
+    # ...fix the failing datapoints (bad URLs, missing files, ...)...
+    # retry() re-uploads ONLY the failed datapoints into the SAME dataset and
+    # finishes creating the definition. It raises FailedUploadException again if
+    # failures remain outside tolerance, so it can be looped.
+    job_def = e.retry()
+
+job = audience.assign_job(job_def)
 ```
 
 ## Updating a Job Definition's Dataset
@@ -665,6 +730,30 @@ job_def.update_dataset(
     data_type="media",
     contexts=["ctx 1", "ctx 2", "ctx 3"],
 )
+```
+
+## Checking Job Progress Without Blocking
+
+`get_progress()` returns immediately with the current state, unlike `display_progress_bar()` / `wait_for_done()`.
+
+```python
+from rapidata import RapidataClient
+
+client = RapidataClient()
+job = client.job.get_job_by_id("job_id")
+
+progress = job.get_progress()
+print(f"{progress.state}: {progress.completion_percentage:.1f}% done")
+
+# recruiting is None for curated audiences (e.g. "global"), which don't recruit.
+if progress.recruiting:
+    print(f"{progress.recruiting.graduated} graduated, "
+          f"{progress.recruiting.distilling} still distilling")
+
+# get_results() / wait_for_done() raise up front if the job's audience can never
+# produce responses — nobody graduated AND nobody is being recruited. An audience
+# that is still distilling keeps waiting normally.
+results = job.get_results()
 ```
 
 ## Estimating Job Cost Before Launch
@@ -698,7 +787,7 @@ print(job.estimated_cost.estimated_cost)
 
 ## Context Shortening
 
-Datapoint contexts are limited to 400 characters. Use `client.context` to shorten them manually, or enable auto-shortening at upload time.
+Contexts longer than 400 characters are **always** shortened automatically at job / order creation time (a warning reports how many were shortened) — this cannot be turned off. Use `client.context` to shorten them yourself beforehand, or opt into shortening *every* context.
 
 ```python
 from rapidata import RapidataClient, rapidata_config
@@ -717,8 +806,8 @@ shortened = client.context.shorten_contexts([
     ("Long scene description B ...", "How many people are visible?"),
 ])
 
-# Or enable auto-shortening globally — applied at job / order creation time
-rapidata_config.upload.autoShortenContext = True
+# Or shorten EVERY context (not just over-long ones) at job / order creation time
+rapidata_config.upload.contextShortening = True
 
 job_def = client.job.create_classification_job_definition(
     name="Outfit check",

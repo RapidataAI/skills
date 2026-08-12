@@ -81,7 +81,7 @@ The file is just one transport. To move the token over any transport (key-value 
 - **Audience**: A group of annotators selected and qualified for **one specific task** — via qualification examples and/or recruitment filters chosen to match that task. The whole point is to put the *right* people on *that* task. An audience trained for one task is **not** meant to be reused on a different, unrelated task: its qualification examples define what "good" means for the original task only, so reusing it elsewhere silently loses the quality it was built for. Reusing the same audience for repeated or scheduled runs of the **same** task is exactly right; for a different task, create a new audience. Three kinds:
   - **global** — the generic baseline pool for tasks that need no special qualification; instant, no setup. Use `client.audience.get_audience_by_id("global")`.
   - **curated** — pre-trained on a domain (e.g. alignment via `aud_MU1GZYoESyO`).
-  - **custom** — trained with your own task-specific qualification examples (`client.audience.create_audience(...)` + `add_*_example(...)` + `start_recruiting()`). ⚠️ Recruiting is **explicit**: a custom audience recruits nobody until you add **≥3 qualification examples** *and then* call `audience.start_recruiting()`. Adding examples does **not** start recruiting on its own; assign a job before recruiting has started and it silently sits at **0 responses forever** (no error is raised, it just never completes). Use `"global"` when you don't need task-specific qualification.
+  - **custom** — trained with your own task-specific qualification examples (`client.audience.create_audience(...)` + `add_*_example(...)` + `start_recruiting()`). ⚠️ Recruiting is **explicit**: a custom audience recruits nobody until you add **≥3 qualification examples** *and then* call `audience.start_recruiting()`. Adding examples does **not** start recruiting on its own; assign a job before recruiting has started and it can never receive responses — `assign_job` logs a warning, and the waiting methods (`get_results()`, `display_progress_bar()`) raise instead of blocking forever. Use `"global"` when you don't need task-specific qualification.
 - **Job**: A running instance of a job definition assigned to an audience
 - **Flow**: Lightweight continuous ranking without full job setup
 - **MRI/Benchmark**: Compare and rank AI models on leaderboards
@@ -112,7 +112,7 @@ audience = client.audience.get_audience_by_id("global")
 # Only if you need task-specific qualification: client.audience.create_audience(name="My Evaluators")
 #   — but recruiting is explicit: you MUST add >=3 qualification examples (add_*_example) AND
 #   then call audience.start_recruiting() BEFORE assign_job. Adding examples does not start
-#   recruiting; a job assigned before recruiting starts hangs at 0 responses forever (no error).
+#   recruiting; a job assigned before recruiting starts can never receive responses.
 #   See "Custom Audiences".
 
 # 2. Create a job definition
@@ -131,7 +131,8 @@ job = audience.assign_job(job_def)
 job.view()
 
 # 5. Monitor and get results
-job.display_progress_bar()
+progress = job.get_progress()   # Non-blocking snapshot: state, completion_percentage, recruiting
+job.display_progress_bar()      # Or block on a live progress bar
 results = job.get_results()
 df = results.to_pandas()
 ```
@@ -155,9 +156,12 @@ job_def = client.job.create_classification_job_definition(
     confidence_threshold=0.99,      # Optional: confidence-based early stopping
     # quorum_threshold=7,           # Alternative: quorum-based early stopping (cannot use both)
     settings=[NoShuffleSetting()],         # Keep answer order
+    failure_tolerance=0.01,         # Optional: fraction of datapoints allowed to fail the upload
     private_metadata=[{"id": "abc"}],
 )
 ```
+
+`failure_tolerance` (available on every `create_*_job_definition`, defaults to `rapidata_config.upload.failureTolerance` = `0.0`, i.e. strict) is the fraction of datapoints allowed to fail uploading while the job definition is still created. Above the tolerance **no job definition is created at all** — see gotcha 8.
 
 ### Comparison
 
@@ -322,12 +326,17 @@ job_def = client.job.create_free_text_job_definition(
 
 Create an audience trained on your specific task.
 
-⚠️ **Recruiting is explicit — you must start it yourself.** A custom audience recruits nobody until you (1) add **≥3 qualification examples** with `add_*_example(...)` and (2) call `audience.start_recruiting()`. Adding examples does **not** start recruiting; until `start_recruiting()` is called the audience stays in its `Created` state. A job assigned to an audience that hasn't started recruiting does **not** error — it silently sits at **0 responses and never completes** (`display_progress_bar()` / `get_results()` block forever). Call `start_recruiting()` **once**, after all examples are added and reviewed, before `assign_job`. If you don't need task-specific qualification, skip all of this and use the ready-to-go global pool with no setup: `client.audience.get_audience_by_id("global")`.
+⚠️ **Recruiting is explicit — you must start it yourself.** A custom audience recruits nobody until you (1) add **≥3 qualification examples** with `add_*_example(...)` and (2) call `audience.start_recruiting()`. Adding examples does **not** start recruiting; until `start_recruiting()` is called the audience stays in its `Created` state. A job assigned to such an audience is still created (with a warning), but it can never receive responses — `display_progress_bar()` / `get_results()` raise an error explaining that nobody graduated and nobody is being recruited. Call `start_recruiting()` **once**, after all examples are added and reviewed, before `assign_job`. If you don't need task-specific qualification, skip all of this and use the ready-to-go global pool with no setup: `client.audience.get_audience_by_id("global")`.
 
 **Important:** Every qualification example and its associated truth must be manually and thoroughly reviewed by a human before use. If an example has a wrong or ambiguous truth value, the qualification process will filter out good labelers who answer correctly while letting through bad labelers who happen to match the incorrect answer — completely inverting quality control. Always verify that each example has a clear, unambiguous correct answer.
 
 ```python
-audience = client.audience.create_audience(name="Expert Evaluators")
+audience = client.audience.create_audience(
+    name="Expert Evaluators",
+    # target_accuracy=0.8,   # Optional: fraction of qualification tasks (0-1) a labeler must get right (server default 0.75)
+    # min_tasks=12,          # Optional: qualification tasks before the accuracy verdict is trusted (server default 10)
+    # max_tasks=30,          # Optional: cap on admission-trial tasks before a verdict is forced (default: no cap)
+)
 
 # Add classification examples
 audience.add_classification_example(
@@ -385,22 +394,26 @@ audience.add_select_words_example(
 examples_df = audience.get_examples(amount=10, page=1)
 
 # Once >=3 examples are added and reviewed, start recruiting. This is required and explicit:
-# adding examples does not start it, and assign_job before this hangs at 0 responses forever.
+# adding examples does not start it, and a job assigned before this can never get responses.
 audience.start_recruiting()
+
+# Watch the funnel fill up (graduated / distilling / dropped / inactive)
+metrics = audience.get_recruiting_metrics()
+print(metrics.graduated, metrics.distilling)
 
 # Now the audience recruits against the examples; assign a job as usual.
 job = audience.assign_job(job_def)
 ```
 
 **Managing audiences (`client.audience`):**
-- `client.audience.create_audience(name, filters=None)` — create a custom audience
+- `client.audience.create_audience(name, filters=None, target_accuracy=None, min_tasks=None, max_tasks=None)` — create a custom audience. The last three set the admission bar for qualification: `target_accuracy` (0–1, server default `0.75`), `min_tasks` (server default `10`), `max_tasks` (no cap by default). Supplying only some of them is fine — the SDK fills in the defaults. Raises `ValueError` for an accuracy outside 0–1, `min_tasks < 1`, or `max_tasks < min_tasks`.
 - `client.audience.get_audience_by_id(audience_id)` — fetch by id; pass `"global"` for the ready-to-go global audience
 - `client.audience.find_audiences(name="", amount=10, page=1)` — list your audiences (newest first), optionally filtered by name
 
 **Audience methods:**
-- `audience.start_recruiting()` — begin recruiting/onboarding annotators against the audience's qualification examples. **Required and explicit for custom audiences**: call it once, after adding ≥3 examples and before `assign_job` — adding examples never starts recruiting on its own, and a job assigned before recruiting has started hangs at 0 responses forever. Calling it more than once is a no-op. Not needed for the global/curated pools.
-- `audience.get_recruiting_metrics()` — snapshot of the audience's recruiting funnel (how annotators are distributed across recruiting states); all zeros before `start_recruiting()` has pulled anyone in.
-- `audience.assign_job(job_definition)` — start a job. Never blocks on funds: the job is always created, but if its estimated cost exceeds your account balance a cost warning is logged (with the estimate, your balance, and the shortfall) and the job may pause partway until you top up.
+- `audience.start_recruiting()` — begin recruiting/onboarding annotators against the audience's qualification examples. **Required and explicit for custom audiences**: call it once, after adding ≥3 examples and before `assign_job` — adding examples never starts recruiting on its own, and a job assigned before recruiting has started can never receive responses. Calling it more than once is a no-op; a backend failure raises `RapidataError` rather than being swallowed. Returns the audience, so it chains. Not needed for the global/curated pools.
+- `audience.get_recruiting_metrics()` — snapshot of the audience's recruiting funnel as a `RecruitingMetrics` (`graduated` = eligible to work now, `distilling` = still qualifying, `dropped`, `inactive`; one bucket per annotator). All zeros before `start_recruiting()` has pulled anyone in, and for curated audiences.
+- `audience.assign_job(job_definition)` — start a job. Never blocks on funds: the job is always created, but if its estimated cost exceeds your account balance a cost warning is logged (with the estimate, your balance, and the shortfall) and the job may pause partway until you top up. A warning is also logged if the audience has no graduated annotators yet.
 - `audience.find_jobs(name="filter", amount=10, page=1)` — find assigned jobs
 - `audience.update_filters([...])` — set the recruitment filters on this audience (audience-supported filters only — see below)
 - `audience.filter([filters])` — derive a filtered subset of this audience without re-onboarding labelers; supports `CountryFilter`, `LanguageFilter`, `DemographicFilter`, `AgeFilter`, `GenderFilter`, and `DeviceFilter`, plus the `AndFilter`/`OrFilter`/`NotFilter` combinators (also via `&` / `|` / `~`); returns a `RapidataFilteredAudience` (exposes `assign_job`, `find_jobs`, `delete` only — no `add_classification_example`, `update_filters`, or nested `.filter()`)
@@ -417,21 +430,16 @@ job = audience.assign_job(job_def)
 - `job_def.delete()` — delete a job definition and all its revisions
 - `job.display_progress_bar(refresh_rate=5)` — blocking progress bar
 - `job.get_status()` — current status string
-- `job.get_results()` — blocks until Completed/Failed (auto-regenerates if `StaleResults`), returns `RapidataResults`. If the job needs manual review (`ManualApproval`) or runs out of funds mid-run (`SpendLimited`) — neither state completes on its own — it raises an informative error naming the state instead of blocking; top up or wait for a reviewer, then call it again.
+- `job.get_progress()` — non-blocking snapshot: a `JobProgress` with `state` (same value as `get_status()`), `completion_percentage` (0–100) and `recruiting` (a `RecruitingMetrics`, or `None` for curated audiences)
+- `job.get_results()` — blocks until Completed/Failed (auto-regenerates if `StaleResults`), returns `RapidataResults`. If the job needs manual review (`ManualApproval`) or runs out of funds mid-run (`SpendLimited`) — neither state completes on its own — it raises an informative error naming the state instead of blocking; top up or wait for a reviewer, then call it again. It also raises up front when the job's audience **can never produce responses** (nobody graduated *and* nobody is being recruited); an audience that is merely still distilling does not raise.
 - `job.view()` — open the job's details page in the browser
 - `job.delete()` — delete a running job
 
 ## Context Management
 
-Datapoint contexts have a **400-character maximum**; the backend rejects longer ones and a warning is logged at job/order creation time.
-
-Set `rapidata_config.upload.autoShortenContext = True` to have over-long contexts automatically shortened against the task instruction before upload:
+Datapoint contexts have a **400-character maximum**; the backend rejects longer ones. An over-long context is therefore **always** shortened against the task instruction before upload — this cannot be turned off — and a warning reports how many contexts were shortened:
 
 ```python
-from rapidata import rapidata_config
-
-rapidata_config.upload.autoShortenContext = True
-
 job_def = client.job.create_classification_job_definition(
     name="Outfit check",
     instruction="Does the main character wear the right clothing?",
@@ -439,6 +447,14 @@ job_def = client.job.create_classification_job_definition(
     datapoints=["scene.jpg"],
     contexts=["<a very long, detailed scene description ...>"],
 )
+```
+
+A context tuned to the question focuses the labeler even when it already fits the limit. Set `rapidata_config.upload.contextShortening = True` to have **every** context shortened, not just the over-long ones:
+
+```python
+from rapidata import rapidata_config
+
+rapidata_config.upload.contextShortening = True
 ```
 
 Shorten contexts directly without creating a job via `client.context`:
@@ -450,7 +466,7 @@ short = client.context.shorten_context(
     question="Does the main character wear the right clothing?",
 )
 
-# Batch: (context, question) pairs in one request
+# Batch: (context, question) pairs, order preserved; sent as concurrent batches of 10
 shortened = client.context.shorten_contexts([
     (context_a, question_a),
     (context_b, question_b),
@@ -527,15 +543,15 @@ settings=[CustomSetting(key="my_flag", value="on")]              # Rapid-level f
 
 1. **Watch early responses** — after assigning, call `job.view()` to open the running job in the browser and check that labelers understand the instruction as intended
 2. **Use `NoShuffleSetting()` for Likert scales** — ordered answer options get shuffled by default
-3. **Custom audiences need ≥3 examples AND an explicit `start_recruiting()`** — recruiting never begins on its own. Add **≥3 qualification examples** (`add_*_example(...)`), then call `audience.start_recruiting()` **once**, before `assign_job`. Skip either step and the audience recruits nobody: the job **silently hangs at 0 responses forever** — no error is raised; `get_results()` / `display_progress_bar()` just block indefinitely. Use `client.audience.get_audience_by_id("global")` when you don't need task-specific qualification.
+3. **Custom audiences need ≥3 examples AND an explicit `start_recruiting()`** — recruiting never begins on its own. Add **≥3 qualification examples** (`add_*_example(...)`), then call `audience.start_recruiting()` **once**, before `assign_job`. Skip either step and the audience recruits nobody: the job is still created (with a warning), but it can never receive responses, so `get_results()` / `display_progress_bar()` raise an error saying the audience can never produce responses. Use `client.audience.get_audience_by_id("global")` when you don't need task-specific qualification.
    - **One audience = one task.** A custom audience is qualified for the specific task its examples describe. Reusing it for a different, unrelated task is a misuse — the qualification no longer applies and the quality guarantee is lost. Reuse it only for repeated/scheduled runs of the *same* task; spin up a new audience for a new task.
-4. **25-second time limit** — labelers have ~25 seconds per task; keep instructions concise
+4. **25-second time limit, 250-character instructions** — labelers have ~25 seconds per task; keep instructions concise. Instructions (and the `target` of locate/draw tasks) are capped at **250 characters** — a longer one raises `ValueError: instruction is <n> characters; maximum is 250` when the job definition or qualification example is created
 5. **Responses may exceed `responses_per_datapoint`** — concurrent labelers can cause slight overflow
 6. **Two early stopping strategies, mutually exclusive** — `confidence_threshold` (statistical, weighted by labeler trust scores) or `quorum_threshold` (stops when N responses agree); cannot use both at once
 7. **Early stopping only for unambiguous tasks** — both strategies work best when there's a clear correct answer
-8. **Failed uploads don't block job creation** — a `FailedUploadException` is raised but the job is still created with successful datapoints; access the partial object via `e.job_definition` or `e.order`
+8. **Failed uploads abort job-definition creation** — job definitions are created atomically: if more than `failure_tolerance` of the datapoints fail to upload, **no job definition is created** (`e.job_definition` is `None`) and at least one datapoint must always succeed. Fix the failing datapoints and call `e.retry()`, which re-uploads only the failed ones into the *same* dataset and finishes creating the definition; it raises `FailedUploadException` again if failures remain, so it can be looped. Within tolerance, the definition is created and a warning reports how many failed. Inspect failures via `e.failures_by_reason`, `e.failures_by_stage` (grouped by remote-URL ingestion stage — only `internal` is a Rapidata-side fault), and each `FailedUpload`'s `stage` / `http_status`. Legacy orders are unchanged: the order is still created and reachable via `e.order` (there `e.retry()` raises `RuntimeError` — use `dataset.add_datapoints(e.failed_uploads)`)
 9. **QR code printed on job/order creation** — when a job definition is created or an order enters preview, a terminal QR code linking to the campaign preview is printed automatically so you can open it on a phone; suppress it with `rapidata_config.logging.silent_mode = True`
-10. **Context length limit is 400 characters** — the backend rejects contexts longer than 400 characters; a warning is logged at creation time. Set `rapidata_config.upload.autoShortenContext = True` to have over-long contexts automatically shortened against the task instruction before upload, or use `client.context.shorten_context()` / `client.context.shorten_contexts()` to shorten manually.
+10. **Context length limit is 400 characters** — the backend rejects contexts longer than 400 characters, so an over-long context is **always** shortened against the task instruction before upload (not optional; a warning reports how many were shortened). Set `rapidata_config.upload.contextShortening = True` to shorten *every* context, or use `client.context.shorten_context()` / `client.context.shorten_contexts()` to shorten manually.
 11. **Jobs can pause for manual review or funds** — `assign_job` always creates the job, but if its estimated cost exceeds your account balance it logs a cost warning and the job may pause until you top up. A job can also enter manual review (`ManualApproval`) or become spend-limited (`SpendLimited`) mid-run; since neither state completes on its own, `get_results()` raises an informative error naming the state instead of blocking — top up or wait for a reviewer, then retry.
 
 ## Ranking Flows (Continuous Ranking)
@@ -561,7 +577,7 @@ flow_item = flow.create_new_flow_batch(
     datapoints=["img1.jpg", "img2.jpg", "img3.jpg"],
     context="Generated by Model X",
     # context_assets=["reference.jpg"],  # Optional: 1–10 image/video/audio paths/URLs shown alongside instruction
-    time_to_live=300,  # Seconds until expiry (60–3600; defaults to 3600 when omitted)
+    time_to_live=300,  # Seconds until expiry (45–3600; defaults to 3600 when omitted)
 )
 
 # Get results (flow items have their own result shape, not RapidataResults)
@@ -598,7 +614,8 @@ benchmark = client.mri.create_new_benchmark(
     prompts=["A serene mountain landscape", "A futuristic city"],
     # identifiers=[...],        # Optional: stable ids for each prompt
     # prompt_assets=[...],      # Optional: reference media for each prompt
-    # tags=[...],               # Optional: tags applied to the benchmark
+    # tags=[...],               # Optional: per-prompt tags — str, Tag(value, category=...), or a mix
+    # origins=[...],            # Optional: per-prompt Origin(source) or plain source string
     # description=None,         # Optional: plain-text credit for the benchmark (max 2000 characters)
 )
 
@@ -607,8 +624,26 @@ benchmark.add_prompts(
     prompts=["A quiet lake at dawn"],
     # identifiers=["dawn_lake"],   # Optional: stable id per prompt
     # prompt_assets=["ref.jpg"],   # Optional: reference media per prompt
-    # tags=[["landscape"]],        # Optional: list of tag lists, one per prompt
+    # tags=[["landscape"]],        # Optional: list of tag lists, one per prompt (str and/or Tag)
+    # origins=["coco"],            # Optional: where each prompt came from (Origin or str)
 )
+
+# Tags carry an optional category; bare strings become Tag(value, category=None)
+from rapidata import Tag, Origin
+
+benchmark.add_prompts(
+    identifiers=["garage_car"],
+    prompts=["A car in a garage"],
+    tags=[[Tag("vehicle", category="object"), "indoor"]],
+    origins=[Origin("coco")],
+)
+
+# Re-tag / set the origin of an already-registered prompt (a field left None stays unchanged)
+benchmark.update_prompt("garage_car", tags=["abstract", "surreal"], origin="wikiart")
+
+print(benchmark.tags)             # Values only, aligned by index with prompts (categories dropped)
+print(benchmark.structured_tags)  # list[list[Tag]] — preferred, keeps categories
+print(benchmark.origins)          # list[Origin | None]
 
 # Create leaderboard
 leaderboard = benchmark.create_leaderboard(
@@ -617,10 +652,13 @@ leaderboard = benchmark.create_leaderboard(
     show_prompt=False,
     show_prompt_asset=False,
     inverse_ranking=False,
-    # level_of_detail="high",            # "debug" | "low" | "medium" | "high" | "very high"
+    # level_of_detail="high",            # "debug" (20) | "low" (2000) | "medium" (4000) | "high" (8000)
+    #                                    #   | "very high" (16000), or a positive int response budget
     # min_responses_per_matchup=5,
     # audience_id="...",                 # Optional: id string, RapidataAudience, or RapidataFilteredAudience
     # settings=[...],
+    # included_tags=["outdoor"],         # Optional: only collect matchups for prompts carrying one of these tags
+    # excluded_tags=["nsfw"],            # Optional: skip prompts carrying one of these tags (always wins)
     # vote_aggregation="AllVotes",       # "AllVotes" (default) or "MajorityVote" — how matchup votes are aggregated
     # benchmarkDescription="...",        # Optional: description for a newly created benchmark (max 2000 chars; ignored if benchmark already exists)
 )
@@ -700,9 +738,14 @@ for job in leaderboard.jobs:
 
 # Update leaderboard config live
 leaderboard.name = "Realism (Updated)"
-leaderboard.level_of_detail = "very high"
+leaderboard.level_of_detail = "very high"      # Or a custom int budget: leaderboard.level_of_detail = 5000
 leaderboard.min_responses_per_matchup = 7
 leaderboard.vote_aggregation = "MajorityVote"  # "AllVotes" or "MajorityVote"; only affects future runs
+
+# Reading back the detail level
+print(leaderboard.level_of_detail)   # A named level only on an exact budget match, otherwise "custom"
+print(leaderboard.response_budget)   # The exact budget behind it, e.g. 5000
+print(leaderboard.included_tags, leaderboard.excluded_tags)  # Fixed at creation — create a new leaderboard to re-scope
 
 # Open in browser
 benchmark.view()
