@@ -148,41 +148,88 @@ jobs:
 
           SKILL_DIR="plugins/rapidata-sdk-plugin/skills/rapidata"
 
-          # Paths are handed over instead of file contents: the Write tool refuses to
-          # overwrite a file that was not Read in-session, so inlining the docs here
-          # made the first Write on every file fail and burn the turn budget.
-          cat > /tmp/claude-prompt.txt << PROMPT
-          You are updating the skill documentation for a Claude Code plugin that teaches Claude the Rapidata Python SDK.
+          run_claude() {
+            claude -p \
+              --model claude-opus-4-8 \
+              --dangerously-skip-permissions \
+              --max-turns "$2" \
+              --output-format stream-json \
+              --verbose < "$1"
+          }
 
-          The three skill files to update are on disk:
-          - $SKILL_DIR/SKILL.md — core concepts, task types, common patterns
-          - $SKILL_DIR/reference.md — full API reference
-          - $SKILL_DIR/examples.md — runnable code examples
+          # Phase 1 — distil the diff once, into a compact summary. Navigating the diff
+          # costs ~20 turns on a multi-release catch-up, so doing it again inside every
+          # per-file pass is what exhausted the budget.
+          cat > /tmp/prompt-summary.txt << 'PROMPT'
+          You are preparing a change summary that another agent will use to update skill documentation for the Rapidata Python SDK.
 
-          The SDK changes between the old and the new version are on disk too:
-          - /tmp/sdk-diff-stat.txt — per-file summary of the diff; read this first to see which files changed
+          Inputs on disk:
+          - /tmp/sdk-diff-stat.txt — per-file summary of the SDK diff; read this first
           - /tmp/sdk-diff.txt — the full diff (generated API client and OpenAPI spec already excluded)
 
-          HOW TO WORK:
-          1. Read /tmp/sdk-diff-stat.txt, then read or grep /tmp/sdk-diff.txt for the user-facing changes. If the full diff is large, grep it by file or symbol rather than reading it whole.
-          2. Read the skill files you need to change.
-          3. Apply targeted changes with the Edit tool. Use Edit, never Write — do not rewrite whole files, and do not create new files.
+          Write a single markdown file to /tmp/sdk-changes.md describing every USER-FACING change, grouped by area. For each change give the symbol (class / method / parameter), what changed, and the exact new signature or usage where the diff shows it.
 
           RULES:
-          - Only update what the diff evidences. Do NOT invent features or capabilities not shown in the diff.
-          - Preserve the existing style, structure, and formatting of each file.
-          - Only modify files that actually need changes. If a file needs no changes, leave it exactly as-is.
-          - Do NOT add or remove sections unless the diff clearly warrants it.
-          - Focus on: new/changed API methods, parameter changes, renamed classes, removed features, and new examples if clearly demonstrated in the diff.
-          - Ignore changes to tests, CI workflows, and packaging metadata — they are not user-facing.
+          - Only report what the diff evidences. Do NOT invent or infer features.
+          - Cover new and changed API methods, parameter changes, renamed or removed classes, new enums, and changed result shapes.
+          - Ignore tests, CI workflows, packaging metadata, and the generated client.
+          - Be specific and complete but do not paste large diff hunks.
+          - Write ONLY /tmp/sdk-changes.md. Do not modify any other file.
           PROMPT
 
-          cat /tmp/claude-prompt.txt | claude -p \
-            --model claude-opus-4-8 \
-            --dangerously-skip-permissions \
-            --max-turns 60 \
-            --output-format stream-json \
-            --verbose
+          if ! run_claude /tmp/prompt-summary.txt 60; then
+            echo "::error::Phase 1 (SDK change summary) failed."
+            exit 1
+          fi
+          if [ ! -s /tmp/sdk-changes.md ]; then
+            echo "::error::Phase 1 produced no change summary at /tmp/sdk-changes.md."
+            exit 1
+          fi
+          echo "Change summary generated ($(wc -c < /tmp/sdk-changes.md) bytes)"
+
+          # Phase 2 — one pass per skill file, each with its own turn budget, so the
+          # cost scales with the largest file rather than the sum of all three. The
+          # docs grow every release; a single shared budget silently tightens.
+          FAILED=()
+          for doc in SKILL.md reference.md examples.md; do
+            case "$doc" in
+              SKILL.md)     PURPOSE="core concepts, task types, and common patterns" ;;
+              reference.md) PURPOSE="the full API reference — parameters, filters, result formats, error handling" ;;
+              examples.md)  PURPOSE="runnable end-to-end code examples for each task type" ;;
+            esac
+
+            # Paths, not contents: the Write tool refuses to overwrite a file that was
+            # not Read in-session, so inlining the doc made the first Write fail.
+            cat > /tmp/prompt-$doc.txt << PROMPT
+          You are updating ONE file of the skill documentation for a Claude Code plugin that teaches Claude the Rapidata Python SDK.
+
+          The only file you may modify: $SKILL_DIR/$doc
+          What it is for: $PURPOSE
+
+          The SDK changes to reflect are already distilled in /tmp/sdk-changes.md. If you need more detail on a specific symbol, grep /tmp/sdk-diff.txt (the full SDK diff).
+
+          HOW TO WORK:
+          1. Read /tmp/sdk-changes.md.
+          2. Read $SKILL_DIR/$doc.
+          3. Apply targeted changes with the Edit tool. Use Edit, never Write — do not rewrite the file wholesale, and do not create new files.
+
+          RULES:
+          - Only update what the change summary evidences. Do NOT invent features or capabilities.
+          - Preserve the existing style, structure, and formatting of the file.
+          - Change only what this file is responsible for; if it genuinely needs no changes, make none.
+          - Do NOT add or remove sections unless the changes clearly warrant it.
+          - Do NOT modify any file other than $SKILL_DIR/$doc.
+          PROMPT
+
+            echo "::group::Updating $doc"
+            if run_claude /tmp/prompt-$doc.txt 60; then
+              echo "$doc: done"
+            else
+              echo "::warning::Doc update failed for $doc"
+              FAILED+=("$doc")
+            fi
+            echo "::endgroup::"
+          done
 
           # Revert any files Claude touched outside the allowed set
           ALLOWED_FILES=(
@@ -203,6 +250,11 @@ jobs:
               git checkout -- "$changed_file"
             fi
           done
+
+          if [ ${#FAILED[@]} -gt 0 ]; then
+            echo "::error::Doc update failed for: ${FAILED[*]}"
+            exit 1
+          fi
 
       - name: Discard partial doc edits if the update failed
         if: steps.should-update.outputs.skip != 'true' && steps.claude-docs.outcome != 'success'
