@@ -49,11 +49,22 @@ jobs:
       - name: Determine old version for diff
         id: old-version
         run: |
+          SKILL_FILE="plugins/rapidata-sdk-plugin/skills/rapidata/SKILL.md"
+          # The SKILL.md pin — not plugin.json — is what the docs actually claim to
+          # describe, and it only advances on a successful doc update. Gating on
+          # plugin.json let a release whose docs never got written look up to date.
+          DOCUMENTED_VERSION=$(grep -oE 'pinned to \*\*Rapidata SDK v[0-9]+\.[0-9]+\.[0-9]+' "$SKILL_FILE" \
+            | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+
           if [ -n "${{ inputs.from_version }}" ]; then
             OLD_VERSION="${{ inputs.from_version }}"
             echo "Using manual from_version: $OLD_VERSION"
+          elif [ -n "$DOCUMENTED_VERSION" ]; then
+            OLD_VERSION="$DOCUMENTED_VERSION"
+            echo "Using version documented in SKILL.md: $OLD_VERSION"
           else
             OLD_VERSION="${{ steps.plugin-version.outputs.version }}"
+            echo "::warning::No pinned version found in $SKILL_FILE; falling back to plugin.json."
             echo "Using current plugin version: $OLD_VERSION"
           fi
           echo "version=$OLD_VERSION" >> "$GITHUB_OUTPUT"
@@ -69,21 +80,6 @@ jobs:
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
             echo "Will update from $OLD_VERSION to $NEW_VERSION"
-          fi
-
-      - name: Update plugin version
-        if: steps.should-update.outputs.skip != 'true'
-        run: |
-          NEW_VERSION="${{ steps.sdk-version.outputs.version }}"
-          CURRENT_VERSION="${{ steps.plugin-version.outputs.version }}"
-          if [ "$CURRENT_VERSION" != "$NEW_VERSION" ]; then
-            jq --arg v "$NEW_VERSION" '.version = $v' \
-              plugins/rapidata-sdk-plugin/.claude-plugin/plugin.json > tmp.json
-            mv tmp.json plugins/rapidata-sdk-plugin/.claude-plugin/plugin.json
-            git add plugins/rapidata-sdk-plugin/.claude-plugin/plugin.json
-            echo "Updated plugin version to $NEW_VERSION"
-          else
-            echo "Plugin version already at $NEW_VERSION, skipping version bump"
           fi
 
       - name: Clone SDK and generate diff
@@ -256,28 +252,37 @@ jobs:
             exit 1
           fi
 
-      - name: Discard partial doc edits if the update failed
+      - name: Fail if the doc update did not succeed
         if: steps.should-update.outputs.skip != 'true' && steps.claude-docs.outcome != 'success'
         run: |
           SKILL_DIR="plugins/rapidata-sdk-plugin/skills/rapidata"
-          # A run that dies part-way leaves some files edited and others untouched;
-          # committing that mix would publish half-updated docs. Keep only the
-          # mechanical version bump, which the next step re-applies.
+          OLD_VERSION="${{ steps.old-version.outputs.version }}"
+          NEW_VERSION="${{ steps.sdk-version.outputs.version }}"
+          # Nothing is committed on failure — not the docs, not the version markers.
+          # Leaving the pin at the version the docs really describe is what makes the
+          # next run retry this gap instead of skipping it as already done.
           git checkout -- "$SKILL_DIR/SKILL.md" "$SKILL_DIR/reference.md" "$SKILL_DIR/examples.md"
-          echo "Discarded partial skill-doc edits."
+          echo "::error::Skill docs were NOT updated for SDK v${NEW_VERSION}; nothing was committed. The docs still describe v${OLD_VERSION} and the pin still says so, so the next release will retry the whole v${OLD_VERSION} -> newer gap. Re-run manually to retry now."
+          exit 1
 
-      - name: Update pinned SDK version in SKILL.md
+      - name: Update version markers
         if: steps.should-update.outputs.skip != 'true'
         run: |
           NEW_VERSION="${{ steps.sdk-version.outputs.version }}"
           SKILL_FILE="plugins/rapidata-sdk-plugin/skills/rapidata/SKILL.md"
-          # Runs after the doc update so it also normalises any stale `v<semver>` that
-          # Claude may have written into the outdated-skill warning message.
+
+          jq --arg v "$NEW_VERSION" '.version = $v' \
+            plugins/rapidata-sdk-plugin/.claude-plugin/plugin.json > tmp.json
+          mv tmp.json plugins/rapidata-sdk-plugin/.claude-plugin/plugin.json
+
+          # Also normalises any stale `v<semver>` Claude may have written into the
+          # outdated-skill warning message.
           sed -i -E \
             -e "s|(This skill is pinned to \*\*Rapidata SDK v)[0-9]+\.[0-9]+\.[0-9]+(\*\*)|\1${NEW_VERSION}\2|" \
             -e "s|(skill is pinned to v)[0-9]+\.[0-9]+\.[0-9]+|\1${NEW_VERSION}|" \
             "$SKILL_FILE"
-          echo "Pinned SDK version in $SKILL_FILE updated to $NEW_VERSION"
+
+          echo "Version markers set to $NEW_VERSION"
           grep -n "Rapidata SDK v" "$SKILL_FILE" || true
 
       - name: Commit and push
@@ -295,10 +300,3 @@ jobs:
             git commit -m "chore: sync plugin version to SDK v${{ steps.sdk-version.outputs.version }}"
             git push
           fi
-
-      - name: Verify doc update succeeded
-        if: steps.should-update.outputs.skip != 'true' && steps.claude-docs.outcome != 'success'
-        run: |
-          NEW_VERSION="${{ steps.sdk-version.outputs.version }}"
-          echo "::error::Skill docs were NOT updated for SDK v${NEW_VERSION} — the Claude step failed. The version bump was committed anyway so the next release diffs from v${NEW_VERSION} rather than compounding, but the docs still describe the previous version. Re-run this workflow manually with from_version set to the last version whose docs were correct."
-          exit 1
