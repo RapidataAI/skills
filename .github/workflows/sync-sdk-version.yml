@@ -21,7 +21,7 @@ jobs:
   sync-version:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Determine SDK version
         id: sdk-version
@@ -86,20 +86,6 @@ jobs:
             echo "Plugin version already at $NEW_VERSION, skipping version bump"
           fi
 
-      - name: Update pinned SDK version in SKILL.md
-        if: steps.should-update.outputs.skip != 'true'
-        run: |
-          NEW_VERSION="${{ steps.sdk-version.outputs.version }}"
-          SKILL_FILE="plugins/rapidata-sdk-plugin/skills/rapidata/SKILL.md"
-          # Update both the pinned version declaration and any inline `v<semver>` references
-          # that Claude writes into the outdated-skill warning message.
-          sed -i -E \
-            -e "s|(This skill is pinned to \*\*Rapidata SDK v)[0-9]+\.[0-9]+\.[0-9]+(\*\*)|\1${NEW_VERSION}\2|" \
-            -e "s|(skill is pinned to v)[0-9]+\.[0-9]+\.[0-9]+|\1${NEW_VERSION}|" \
-            "$SKILL_FILE"
-          echo "Pinned SDK version in $SKILL_FILE updated to $NEW_VERSION"
-          grep -n "Rapidata SDK v" "$SKILL_FILE" || true
-
       - name: Clone SDK and generate diff
         id: sdk-diff
         if: steps.should-update.outputs.skip != 'true'
@@ -131,24 +117,30 @@ jobs:
           fi
 
           echo "Generating diff between $OLD_TAG and $NEW_TAG"
-          DIFF=$(git -C /tmp/sdk-repo diff "$OLD_TAG" "$NEW_TAG" -- ':!src/rapidata/api_client' 2>/dev/null || true)
 
-          if [ -z "$DIFF" ]; then
+          # api_client and openapi/ are generated from the spec and carry no
+          # user-facing API information — openapi/ alone was ~80% of the diff.
+          EXCLUDES=(':!src/rapidata/api_client' ':!openapi' ':!uv.lock')
+
+          git -C /tmp/sdk-repo diff "$OLD_TAG" "$NEW_TAG" -- "${EXCLUDES[@]}" > /tmp/sdk-diff.txt
+          git -C /tmp/sdk-repo diff --stat "$OLD_TAG" "$NEW_TAG" -- "${EXCLUDES[@]}" > /tmp/sdk-diff-stat.txt
+
+          if [ ! -s /tmp/sdk-diff.txt ]; then
             echo "::error::SDK diff is empty between $OLD_TAG and $NEW_TAG."
             exit 1
           fi
 
-          # Truncate diff at 100KB
-          echo "$DIFF" | head -c 102400 > /tmp/sdk-diff.txt
-          DIFF_SIZE=$(echo "$DIFF" | wc -c)
-          if [ "$DIFF_SIZE" -gt 102400 ]; then
-            echo -e "\n\n[DIFF TRUNCATED — original was ${DIFF_SIZE} bytes]" >> /tmp/sdk-diff.txt
-          fi
-
-          echo "SDK diff generated (${DIFF_SIZE} bytes)"
+          echo "SDK diff generated ($(wc -c < /tmp/sdk-diff.txt) bytes)"
+          cat /tmp/sdk-diff-stat.txt
 
       - name: Update skill docs with Claude
+        id: claude-docs
         if: steps.should-update.outputs.skip != 'true'
+        # A failure here must not abort the job: the version bump still has to be
+        # committed, otherwise the next run diffs from the same stale version and
+        # the diff compounds until no run can ever succeed. The "Verify doc update"
+        # step below turns the job red after the commit lands.
+        continue-on-error: true
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
         run: |
@@ -156,35 +148,40 @@ jobs:
 
           SKILL_DIR="plugins/rapidata-sdk-plugin/skills/rapidata"
 
-          # Build prompt file
-          cat > /tmp/claude-prompt.txt << 'PROMPT_HEADER'
-          You are updating skill documentation for a Claude Code plugin.
-          Below are three skill files (SKILL.md, reference.md, examples.md) followed by a diff of the Rapidata Python SDK between the old and new version.
+          # Paths are handed over instead of file contents: the Write tool refuses to
+          # overwrite a file that was not Read in-session, so inlining the docs here
+          # made the first Write on every file fail and burn the turn budget.
+          cat > /tmp/claude-prompt.txt << PROMPT
+          You are updating the skill documentation for a Claude Code plugin that teaches Claude the Rapidata Python SDK.
+
+          The three skill files to update are on disk:
+          - $SKILL_DIR/SKILL.md — core concepts, task types, common patterns
+          - $SKILL_DIR/reference.md — full API reference
+          - $SKILL_DIR/examples.md — runnable code examples
+
+          The SDK changes between the old and the new version are on disk too:
+          - /tmp/sdk-diff-stat.txt — per-file summary of the diff; read this first to see which files changed
+          - /tmp/sdk-diff.txt — the full diff (generated API client and OpenAPI spec already excluded)
+
+          HOW TO WORK:
+          1. Read /tmp/sdk-diff-stat.txt, then read or grep /tmp/sdk-diff.txt for the user-facing changes. If the full diff is large, grep it by file or symbol rather than reading it whole.
+          2. Read the skill files you need to change.
+          3. Apply targeted changes with the Edit tool. Use Edit, never Write — do not rewrite whole files, and do not create new files.
 
           RULES:
           - Only update what the diff evidences. Do NOT invent features or capabilities not shown in the diff.
           - Preserve the existing style, structure, and formatting of each file.
-          - Only modify files that actually need changes based on the diff. If a file needs no changes, leave it exactly as-is.
-          - Write updated files directly to disk using the Write tool. Do NOT create new files.
-          - Write ALL files that need changes in a SINGLE parallel tool call to minimize turns.
+          - Only modify files that actually need changes. If a file needs no changes, leave it exactly as-is.
           - Do NOT add or remove sections unless the diff clearly warrants it.
-          - Focus on: new/changed API methods, parameter changes, renamed classes, removed features, new examples if clearly demonstrated in the diff.
-
-          PROMPT_HEADER
-
-          echo "=== SKILL.md ===" >> /tmp/claude-prompt.txt
-          cat "$SKILL_DIR/SKILL.md" >> /tmp/claude-prompt.txt
-          echo -e "\n=== reference.md ===" >> /tmp/claude-prompt.txt
-          cat "$SKILL_DIR/reference.md" >> /tmp/claude-prompt.txt
-          echo -e "\n=== examples.md ===" >> /tmp/claude-prompt.txt
-          cat "$SKILL_DIR/examples.md" >> /tmp/claude-prompt.txt
-          echo -e "\n=== SDK DIFF (old → new version) ===" >> /tmp/claude-prompt.txt
-          cat /tmp/sdk-diff.txt >> /tmp/claude-prompt.txt
+          - Focus on: new/changed API methods, parameter changes, renamed classes, removed features, and new examples if clearly demonstrated in the diff.
+          - Ignore changes to tests, CI workflows, and packaging metadata — they are not user-facing.
+          PROMPT
 
           cat /tmp/claude-prompt.txt | claude -p \
             --model claude-opus-4-8 \
             --dangerously-skip-permissions \
-            --max-turns 15 \
+            --max-turns 60 \
+            --output-format stream-json \
             --verbose
 
           # Revert any files Claude touched outside the allowed set
@@ -207,6 +204,30 @@ jobs:
             fi
           done
 
+      - name: Discard partial doc edits if the update failed
+        if: steps.should-update.outputs.skip != 'true' && steps.claude-docs.outcome != 'success'
+        run: |
+          SKILL_DIR="plugins/rapidata-sdk-plugin/skills/rapidata"
+          # A run that dies part-way leaves some files edited and others untouched;
+          # committing that mix would publish half-updated docs. Keep only the
+          # mechanical version bump, which the next step re-applies.
+          git checkout -- "$SKILL_DIR/SKILL.md" "$SKILL_DIR/reference.md" "$SKILL_DIR/examples.md"
+          echo "Discarded partial skill-doc edits."
+
+      - name: Update pinned SDK version in SKILL.md
+        if: steps.should-update.outputs.skip != 'true'
+        run: |
+          NEW_VERSION="${{ steps.sdk-version.outputs.version }}"
+          SKILL_FILE="plugins/rapidata-sdk-plugin/skills/rapidata/SKILL.md"
+          # Runs after the doc update so it also normalises any stale `v<semver>` that
+          # Claude may have written into the outdated-skill warning message.
+          sed -i -E \
+            -e "s|(This skill is pinned to \*\*Rapidata SDK v)[0-9]+\.[0-9]+\.[0-9]+(\*\*)|\1${NEW_VERSION}\2|" \
+            -e "s|(skill is pinned to v)[0-9]+\.[0-9]+\.[0-9]+|\1${NEW_VERSION}|" \
+            "$SKILL_FILE"
+          echo "Pinned SDK version in $SKILL_FILE updated to $NEW_VERSION"
+          grep -n "Rapidata SDK v" "$SKILL_FILE" || true
+
       - name: Commit and push
         if: steps.should-update.outputs.skip != 'true'
         run: |
@@ -222,3 +243,10 @@ jobs:
             git commit -m "chore: sync plugin version to SDK v${{ steps.sdk-version.outputs.version }}"
             git push
           fi
+
+      - name: Verify doc update succeeded
+        if: steps.should-update.outputs.skip != 'true' && steps.claude-docs.outcome != 'success'
+        run: |
+          NEW_VERSION="${{ steps.sdk-version.outputs.version }}"
+          echo "::error::Skill docs were NOT updated for SDK v${NEW_VERSION} — the Claude step failed. The version bump was committed anyway so the next release diffs from v${NEW_VERSION} rather than compounding, but the docs still describe the previous version. Re-run this workflow manually with from_version set to the last version whose docs were correct."
+          exit 1
