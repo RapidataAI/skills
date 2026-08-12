@@ -9,16 +9,23 @@ The new job-definition API exposes **classification**, **comparison**, **locate*
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `name` | str | Job identifier (not shown to labelers) |
-| `instruction` | str | Task description shown to labelers |
+| `instruction` | str | Task description shown to labelers (max 250 characters — longer raises `ValueError`) |
 | `datapoints` | list | Data to label (URLs or local paths) |
 | `data_type` | `"media"` \| `"text"` | `"media"` (default, covers image/video/audio) or `"text"` |
 | `responses_per_datapoint` | int | Responses per item (default 10) |
-| `contexts` | list[str] \| None | Text context per datapoint (max 400 characters each; the backend rejects longer values — set `rapidata_config.upload.autoShortenContext = True` to auto-shorten, or use `client.context` to shorten manually) |
+| `contexts` | list[str] \| None | Text context per datapoint (max 400 characters each; contexts over the limit are always shortened against the instruction before upload — set `rapidata_config.upload.contextShortening = True` to shorten every context, or use `client.context` to shorten manually) |
 | `media_contexts` | list[list[str]] \| None | Reference images per datapoint; each entry is a list of image URLs/paths (one inner list per datapoint) |
 | `confidence_threshold` | float \| None | Confidence-based early stopping threshold (0-1); cannot combine with `quorum_threshold` |
 | `quorum_threshold` | int \| None | Quorum-based early stopping: stop when this many responses agree; cannot combine with `confidence_threshold` |
 | `settings` | `Sequence[RapidataSetting] \| None` | Display/behavior settings |
+| `failure_tolerance` | float \| None | Fraction of datapoints (0.0–1.0) allowed to fail upload while the definition is still created; `None` falls back to `rapidata_config.upload.failureTolerance` (default `0.0` = strict). See Error Handling |
 | `private_metadata` | `list[dict[str, str]] \| None` | Hidden metadata per datapoint |
+
+`failure_tolerance` sits **after `settings` and before `private_metadata`** in every `create_*_job_definition` signature — positional callers of `private_metadata` need to be updated.
+
+### Instruction length
+
+`instruction` is capped at 250 characters (`Workflow.MAX_INSTRUCTION_LENGTH`) for every job definition type and for every audience qualification example. Over-long values raise `ValueError: instruction is <n> characters; maximum is 250` at construction time. For draw and locate jobs the limit applies to the `target`.
 
 ### Classification-specific
 
@@ -127,7 +134,13 @@ A task-specific audience is meant for that task and its repeated or scheduled ru
 
 ```python
 # Create / fetch / discover
-audience = client.audience.create_audience(name="Expert Evaluators", filters=None)
+audience = client.audience.create_audience(
+    name="Expert Evaluators",
+    filters=None,
+    # target_accuracy=0.8,   # Optional: fraction of qualification tasks (0.0–1.0) a labeler must get right
+    # min_tasks=12,          # Optional: qualification tasks before the accuracy verdict is trusted
+    # max_tasks=30,          # Optional: cap on admission-trial tasks before a verdict is forced
+)
 audience = client.audience.get_audience_by_id("global")            # or "aud_..." / any audience id
 audiences = client.audience.find_audiences(name="", amount=10, page=1)   # your audiences, newest first
 
@@ -144,7 +157,9 @@ df = audience.get_examples(amount=10, page=1)                       # inspect ex
 # audience left un-recruited stays in `Created` and any job assigned to it silently hangs at 0
 # responses forever (no error — get_results()/display_progress_bar() block indefinitely). Skip
 # all of this and use get_audience_by_id("global") when you need no task-specific qualification.
-audience.start_recruiting()                                         # call once; calling again is a no-op
+audience.start_recruiting()                                         # returns self; calling again is a no-op.
+                                                                    # A backend failure raises RapidataError — it is
+                                                                    # not swallowed, so recruiting never starts silently.
 metrics = audience.get_recruiting_metrics()                         # snapshot of the recruiting funnel
 
 # Manage
@@ -159,6 +174,38 @@ jobs = audience.find_jobs(name="", amount=10, page=1)              # jobs assign
 ```
 
 Note: free-text answers can't be graded against a ground truth, so there is no `add_free_text_example` — custom audiences cannot be trained for free-text tasks.
+
+### Admission bar (`create_audience`)
+
+Three optional parameters set how strict qualification is:
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `target_accuracy` | float \| None | Fraction of qualification tasks (0.0–1.0) a labeler must answer correctly. Server default `0.75` |
+| `min_tasks` | int \| None | Qualification tasks a labeler must complete before the accuracy verdict is trusted. Server default `10` |
+| `max_tasks` | int \| None | Upper bound on admission-trial tasks before a verdict is forced. Default `None` (no cap) |
+
+Supplying only one of the three is fine — the SDK fills the others in from the defaults (`0.75` / `10`). Passing none of them sends no graduation rule at all and lets the server default apply. Client-side `ValueError`s: `target_accuracy` outside `0.0..1.0`, `min_tasks < 1`, `max_tasks < min_tasks`.
+
+### `RecruitingMetrics`
+
+`audience.get_recruiting_metrics()` returns a frozen `RecruitingMetrics` dataclass (importable from the top-level `rapidata` package) — a snapshot of the recruiting funnel. All counts are zero for audiences that have not recruited anyone and for curated audiences.
+
+| Field | Type | Meaning |
+|-------|------|---------|
+| `graduated` | int | Passed qualification, eligible to work now |
+| `distilling` | int | Still going through qualification |
+| `dropped` | int | Removed from the pool (score too low, limits hit, …) |
+| `inactive` | int | Previously graduated/distilling, went quiet |
+
+Buckets are mutually exclusive — each annotator is counted exactly once.
+
+### Warnings on `assign_job`
+
+The job is always created, but two advisory warnings may be logged afterwards:
+
+- the explicit-content-check skip requested via `rapidata_config.upload.checkForExplicitContent = False` was denied by the account (the check still runs);
+- the audience has **no graduated annotators yet** — the warning names the audience, how many are still distilling, and the job, and points at adding examples + `start_recruiting()`, or at using the `"global"` audience. Only `RapidataAudience` emits this; filtered audiences reuse their base pool.
 
 ## Demographic Filters
 
@@ -285,12 +332,15 @@ EffortSelection(effort_budget=60)    # seconds of effort per session
 
 ```json
 {
-  "info": { "type": "Compare", "name": "Image Comparison", "instruction": "Which image is higher quality?" },
+  "info": { "type": "Compare", "name": "Image Comparison", "instruction": "Which image is higher quality?", "version": "4.1.0" },
   "results": [
     {
       "context": "A small blue book...",
-      "winner_index": 1,
       "winner": "model_b.jpg",
+      "winnerIndex": 1,
+      "weightedWinner": "model_b.jpg",
+      "weightedWinnerIndex": 1,
+      "winner_index": 1,
       "assetUrls": {
         "model_a.jpg": "https://assets.rapidata.ai/<random-uuid>.jpg",
         "model_b.jpg": "https://assets.rapidata.ai/<random-uuid>.jpg"
@@ -321,15 +371,20 @@ EffortSelection(effort_budget=60)    # seconds of effort per session
 |-------|---------|
 | `info.type` / `info.name` / `info.instruction` | Task type (e.g. `Compare`, `Classify`), the job/order name, and the instruction shown to labelers |
 | `assetUrls` | Maps each option to the Rapidata-hosted URL of the exact file shown to labelers (random-UUID filenames; not encrypted) |
-| `winner` | Most-voted option (weighted by userScores) |
+| `winner` | Most-voted option by raw vote count (`argmax` of `aggregatedResults`); `null` when nothing was voted or the top count is tied |
+| `winnerIndex` | Position of `winner` in the ordered option list (`0` = first asset, `1` = second; `Both`/`Neither` appear as trailing indexes when voted); `null` under the same conditions as `winner` |
+| `weightedWinner` / `weightedWinnerIndex` | Reliability-weighted winner (`argmax` of `summedUserScores`) and its index, same index space and `null`-on-tie behavior. Can differ from `winner` on close votes |
+| `winner_index` | **Deprecated** alias of `winnerIndex`, kept for backwards compatibility; will be removed in a future release |
 | `aggregatedResults` | Raw vote counts |
 | `aggregatedResultsRatios` | Vote percentages |
-| `summedUserScores` | Total reliability scores per option |
-| `summedUserScoresRatios` | Weighted voting proportions |
+| `summedUserScores` | Per-option sum of each choosing labeler's aggregated `userScore` |
+| `summedUserScoresRatios` | `summedUserScores` normalized to sum to 1 |
 | `confidencePerCategory` | Confidence level per category (with early stopping) |
 | `userScore` | 0-1 value indicating individual labeler reliability |
 
 A labeler's `demographics` may be empty when no demographic data was collected for them.
+
+`winnerIndex`, `weightedWinner` and `weightedWinnerIndex` are only emitted by aggregator version `4.1.0`+ (`info.version`); results produced by older versions carry only `winner` and `winner_index`.
 
 ### Working with Results
 
@@ -389,6 +444,23 @@ A datapoint stops when:
 - Simpler than confidence stopping — based on raw vote counts, not statistics
 - Good when you want predictable cost bounds with early termination
 - Best for unambiguous tasks with a clear correct answer
+
+## Job Progress
+
+`job.get_progress()` returns a frozen `JobProgress` dataclass immediately — it never blocks, unlike `get_results()` / `wait_for_done()`. `JobProgress` is importable from the top-level `rapidata` package.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `state` | str | Same value as `job.get_status()` |
+| `completion_percentage` | float | 0–100 |
+| `recruiting` | `RecruitingMetrics \| None` | Recruiting funnel of the job's audience; `None` for curated audiences |
+
+```python
+progress = job.get_progress()
+print(f"{progress.state}: {progress.completion_percentage:.1f}% done")
+if progress.recruiting:
+    print(progress.recruiting.graduated, progress.recruiting.distilling)
+```
 
 ## Cost Estimates
 
@@ -456,7 +528,7 @@ Most settings only apply to specific task types. If you add a setting that the j
 
 ### FailedUploadException
 
-When datapoints fail to upload, the job is still created with the successful ones:
+Job-definition creation is **atomic**: the remote definition is persisted only once the datapoint upload lands within the failure tolerance. If too many datapoints fail, **no job definition is created** and `e.job_definition` is `None` — recover with `e.retry()`, which re-uploads only the failed datapoints into the *same* dataset (never a new one) and finishes creating the definition.
 
 ```python
 from rapidata.rapidata_client.exceptions import FailedUploadException
@@ -467,20 +539,56 @@ try:
         instruction="...",
         answer_options=[...],
         datapoints=["valid.jpg", "missing.jpg", "valid2.jpg"],
+        failure_tolerance=0.01,          # Fraction allowed to fail (default 0.0 = strict)
     )
 except FailedUploadException as e:
-    job_def = e.job_definition          # Partially created object (or e.order for the legacy API)
     print(f"Failed: {len(e.failed_uploads)}")
     for reason, dps in e.failures_by_reason.items():
         print(f"  {reason}: {len(dps)} datapoints")
+    for stage, dps in e.failures_by_stage.items():
+        print(f"  stage {stage}: {len(dps)} datapoints")
     for fu in e.detailed_failures:
-        print(fu.item, fu.error_message, fu.error_type)
-    # Decide whether to proceed
-    if len(e.failed_uploads) <= len(datapoints) * 0.1:
-        job = audience.assign_job(job_def)
+        print(fu.item, fu.stage, fu.http_status, fu.error_message, fu.error_type)
+    # ...fix the failing datapoints...
+    job_def = e.retry()                  # Raises FailedUploadException again if failures remain — loopable
 ```
 
-**Properties:** `failed_uploads` (list[Datapoint] — backward-compatible), `detailed_failures` (list[FailedUpload[Datapoint]]), `failures_by_reason` (dict[str, list[Datapoint]]), `job_definition`, `order`, `dataset`.
+Tolerance behaviour:
+
+- Within tolerance but with some failures: the definition **is** created and a warning reports `n/total` failed and the tolerance in effect.
+- Outside tolerance: nothing is created; `job_definition` is `None`.
+- Regardless of tolerance, at least one datapoint must upload successfully — a definition over an empty dataset is never created.
+- The failure ratio is always measured against the **original** datapoint count, so it stays meaningful across `retry()` calls.
+
+**Properties:** `failed_uploads` (list[Datapoint] — backward-compatible), `detailed_failures` (list[FailedUpload[Datapoint]]), `failures_by_reason` (dict[str, list[Datapoint]]), `failures_by_stage` (dict[str, list[Datapoint]] — grouped by remote-URL ingestion stage; failures without a stage, e.g. local files, are omitted, so this can be empty), `job_definition`, `order`, `dataset`, `machine` (the creation state machine backing `retry()`; `None` for order uploads).
+
+**`retry()`** raises `RuntimeError` when the exception did not come from job-definition creation (e.g. legacy order uploads) — for those, use `dataset.add_datapoints(exception.failed_uploads)` instead.
+
+The exception message annotates each item with `stage=…`, `http_status=…` and `trace_id=…`, appends a `Too many open files` hint (naming `ulimit -n`, `RAPIDATA_cacheShards`, `RAPIDATA_maxWorkers`) when a failure looks like file-descriptor exhaustion, and points at `exception.retry()` whenever a creation machine is attached.
+
+### `FailedUpload` fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `item` | Datapoint | The datapoint that failed |
+| `error_message` / `error_type` | str | Failure reason and exception type |
+| `stage` | `str \| None` | Remote-URL ingestion stage: `"download"`, `"redirect"`, `"content_type"`, `"decode"`, `"timeout"`, `"size"`, `"validation"`, `"internal"`. `None` for local-file and datapoint-creation failures |
+| `http_status` | `int \| None` | Origin server's HTTP status, e.g. `403` |
+
+Only `internal` is a Rapidata-side fault — every other stage is caller-actionable. `format_error_details()` emits `Stage:` and `HTTP Status:` lines when these are present. Datapoint-level asset failures only propagate `stage` / `http_status` when all blocking asset failures agree on a single value; otherwise both are `None`.
+
+### `AssetWarning`
+
+Non-fatal advisories the backend attaches to **successful** uploads (e.g. a video longer than annotators can solve). Importable from `rapidata.rapidata_client.exceptions`.
+
+```python
+@dataclass(frozen=True)
+class AssetWarning(Generic[T]):
+    item: T        # the asset (file path or URL)
+    message: str   # backend advisory text, surfaced verbatim
+```
+
+Collected from both single-asset and batch upload paths, de-duplicated on `(item, message)`, and logged once at the end of an upload as `Upload warning for '<item>': <message>`. They never fail the upload.
 
 **Recovery docs:** https://docs.rapidata.ai/3.x/error_handling/
 
@@ -489,6 +597,12 @@ except FailedUploadException as e:
 `assign_job` never blocks on funds: the job is always created. If its estimated cost exceeds your account balance, `assign_job` logs a warning with the estimate, your balance, and the expected shortfall — the job still runs, but may pause partway until you top up.
 
 Some jobs don't go straight to running. A job can enter manual review (`ManualApproval`) or, once out of funds mid-run, become spend-limited (`SpendLimited`). Neither state completes on its own, so `get_results()` raises an informative error naming the state (and the review reason, when available) instead of blocking indefinitely — top up or wait for a reviewer, then call it again.
+
+### Jobs on an audience that can never respond
+
+`get_results()` and `wait_for_done()` also raise up front when the job's audience can never produce responses — nobody graduated **and** nobody is being recruited (recruiting was never started, or the audience is `Ready` with an empty pool). This catches the case where `start_recruiting()` was forgotten, instead of blocking forever at 0 responses.
+
+An audience that is still distilling, an audience in `Pending`/`Recruiting`, a curated audience, or a failed metrics read do **not** raise — those can still deliver responses.
 
 ## Ranking Flows (Continuous Ranking)
 
@@ -513,7 +627,7 @@ flow_item = flow.create_new_flow_batch(
     data_type="media",                # "media" (default) or "text"
     private_metadata=[...],           # Optional
     accept_failed_uploads=False,      # If True, proceed even if some uploads fail
-    time_to_live=300,                 # Seconds until expiry (60–3600; defaults to 3600 when omitted)
+    time_to_live=300,                 # Seconds until expiry (45–3600; defaults to 3600 when omitted)
 )
 
 # Get results — flow items return FlowItemResult, NOT RapidataResults
@@ -565,7 +679,8 @@ benchmark = client.mri.create_new_benchmark(
     prompts=["A serene mountain landscape", "A futuristic city"],
     # identifiers=[...],        # Optional: stable ids for each prompt
     # prompt_assets=[...],      # Optional: reference media for each prompt
-    # tags=[...],               # Optional: tags applied to the benchmark
+    # tags=[...],               # Optional: per-prompt tag lists; entries may be str, Tag, or a mix
+    # origins=[...],            # Optional: per-prompt Origin or plain source string
     # description=None,         # Optional: plain-text credit for the benchmark (max 2000 characters)
 )
 
@@ -574,8 +689,12 @@ benchmark.add_prompts(
     prompts=["A quiet lake at dawn"],
     # identifiers=["dawn_lake"],   # Optional: stable id per prompt
     # prompt_assets=["ref.jpg"],   # Optional: reference media per prompt
-    # tags=[["landscape"]],        # Optional: list of tag lists, one per prompt
+    # tags=[["landscape"]],        # Optional: list of tag lists, one per prompt (str and/or Tag)
+    # origins=["coco"],            # Optional: Origin / source string / None, one per prompt
 )
+
+# Replace tags and/or set the origin of an already-registered prompt
+benchmark.update_prompt("dawn_lake", tags=["abstract", "surreal"], origin="wikiart")
 
 # Create leaderboard
 leaderboard = benchmark.create_leaderboard(
@@ -584,10 +703,12 @@ leaderboard = benchmark.create_leaderboard(
     show_prompt=False,
     show_prompt_asset=False,
     inverse_ranking=False,
-    # level_of_detail="high",            # "debug" | "low" | "medium" | "high" | "very high"
+    # level_of_detail="high",            # "debug" | "low" | "medium" | "high" | "very high", or a positive int budget
     # min_responses_per_matchup=5,
     # audience_id="...",                 # Optional: id string, RapidataAudience, or RapidataFilteredAudience
     # settings=[...],
+    # included_tags=["outdoor"],         # Optional: only collect matchups for prompts carrying one of these tags
+    # excluded_tags=["nsfw"],            # Optional: skip prompts carrying any of these tags (always wins)
     # vote_aggregation="AllVotes",       # "AllVotes" (default) or "MajorityVote" — how matchup votes are aggregated
     # benchmarkDescription="...",        # Optional: description for a newly created benchmark (max 2000 chars; ignored if benchmark already exists)
 )
@@ -652,6 +773,9 @@ for p in benchmark.participants:
 print(benchmark.prompts)          # As originally provided
 print(benchmark.english_prompts)  # Server-side English translations, aligned by index
 print(benchmark.description)      # Optional plain-text credit (None if not set)
+print(benchmark.structured_tags)  # list[list[Tag]] — tags with categories, aligned by index
+print(benchmark.origins)          # list[Origin | None], aligned by index
+print(benchmark.tags)             # list[list[str]] — values-only view, kept for backwards compatibility
 
 # Get results
 standings = leaderboard.get_standings()                    # Pandas DataFrame for one leaderboard
@@ -667,9 +791,14 @@ for job in leaderboard.jobs:
 
 # Update leaderboard config live
 leaderboard.name = "Realism (Updated)"
-leaderboard.level_of_detail = "very high"
+leaderboard.level_of_detail = "very high"      # Named level or a positive int response budget
 leaderboard.min_responses_per_matchup = 7
 leaderboard.vote_aggregation = "MajorityVote"  # "AllVotes" or "MajorityVote"; only affects future runs
+
+# Read-only leaderboard properties
+print(leaderboard.response_budget)   # Exact budget behind level_of_detail
+print(leaderboard.included_tags)     # Copies; empty list when unset. Fixed at creation —
+print(leaderboard.excluded_tags)     # create a new leaderboard to re-scope
 
 # Open in browser
 benchmark.view()
@@ -679,6 +808,78 @@ leaderboard.view()
 benchmarks = client.mri.find_benchmarks(name="AI Art", amount=10)
 benchmark = client.mri.get_benchmark_by_id("benchmark_id")
 ```
+
+### `Tag` and `Origin`
+
+Both are importable from the top-level `rapidata` package (and from `rapidata.types`).
+
+```python
+from rapidata import Tag, Origin
+
+@dataclass
+class Tag:
+    value: str
+    category: str | None = None
+
+@dataclass
+class Origin:
+    source: str
+```
+
+`tags` on `create_new_benchmark`, `add_prompts` and `update_prompt` accepts plain strings, `Tag`s, or a mix — a bare string becomes `Tag(value, category=None)`, so existing `list[list[str]]` callers are unaffected. `origins` accepts an `Origin`, a plain string (mapped to `Origin(source)`), or `None`, one per prompt.
+
+```python
+benchmark = client.mri.create_new_benchmark(
+    name="Tagged Benchmark",
+    identifiers=["scene_1", "scene_2"],
+    prompts=["A sunny beach", "A car in a garage"],
+    tags=[
+        [Tag("beach", category="scene"), "outdoor"],
+        [Tag("vehicle", category="object"), "indoor"],
+    ],
+    origins=["coco", "coco"],
+)
+```
+
+`identifiers`, `prompts`, `prompt_assets`, `tags` and `origins` must all have the same length or be `None`.
+
+### `benchmark.update_prompt(identifier, tags=None, origin=None)`
+
+Replaces the tags and/or sets the origin of an already-registered prompt. A field left as `None` is not sent and stays unchanged; local caches are updated in place. Raises `ValueError` if both are `None` ("Provide tags and/or origin to update."), on bad tag/origin types, or if the identifier is not registered on the benchmark.
+
+### Response budgets (`level_of_detail`)
+
+`level_of_detail` accepts a named level or a positive integer response budget. Named levels map to fixed budgets:
+
+| Level | Budget |
+|-------|--------|
+| `"debug"` | 20 |
+| `"low"` | 2,000 |
+| `"medium"` | 4,000 |
+| `"high"` | 8,000 |
+| `"very high"` | 16,000 |
+
+`leaderboard.response_budget` always returns the exact budget. The `level_of_detail` getter returns a named level only on an **exact** budget match and `"custom"` otherwise. Booleans are rejected; a non-positive or non-integer budget raises "Response budget must be a positive integer". Changing the budget applies to future evaluations — already-computed standings are not recomputed.
+
+```python
+print(leaderboard.level_of_detail)   # "low"
+leaderboard.level_of_detail = 5000
+print(leaderboard.level_of_detail)   # "custom"
+print(leaderboard.response_budget)   # 5000
+```
+
+### Prompt-tag scoping (`included_tags` / `excluded_tags`)
+
+These restrict **which benchmark prompts the leaderboard collects matchups for**. A prompt is used when it carries at least one `included_tags` value and no `excluded_tags` value; `excluded_tags` always wins, and a non-empty `included_tags` drops untagged prompts. Matching is on the tag value only — the category is irrelevant. The filter is applied when a run starts, not snapshotted at creation, and is fixed for the life of the leaderboard.
+
+Distinct from `get_standings(tags=...)`, which filters what you read back rather than what gets collected.
+
+### Win/loss matrix
+
+`leaderboard.get_win_loss_matrix(tags=None, use_weighted_scoring=None)` and `benchmark.get_win_loss_matrix(tags=None, participant_ids=None, leaderboard_ids=None, use_weighted_scoring=None)` return a square pandas DataFrame indexed by participant name on both axes. Cell `[i, j]` is how often row model `i` beat column model `j`; the diagonal is always 0.
+
+- `tags=None` includes every matchup; `tags=[]` includes none.
+- `use_weighted_scoring=True` weights each matchup by annotator reliability (`userScore`), so cells hold weighted float sums; `False` gives raw win counts; `None` uses the server-configured default.
 
 ## Signals (Scheduled Labeling)
 
@@ -764,7 +965,9 @@ rapidata_config.upload.compression = CompressionConfig(
     quality=70,        # WebP quality 1–100
     max_dimension=1024, # Max width or height in pixels
 )  # Optional: per-upload image compression override (None = server default)
-rapidata_config.upload.autoShortenContext = False  # When True, auto-shorten contexts > 400 chars for the task instruction before upload
+rapidata_config.upload.contextShortening = False   # When True, shorten EVERY context (over-long ones are always shortened)
+rapidata_config.upload.failureTolerance = 0.0      # Fraction of a job's datapoints allowed to fail (0.0–1.0, 0.0 = strict)
+rapidata_config.upload.checkForExplicitContent = None  # None = account default, True = force on, False = request skip
 
 # Client-level maintenance
 client.clear_all_caches()
@@ -781,9 +984,15 @@ client.reset_credentials()
 
 Applies to single-asset uploads (`/asset/file` and `/asset/url`) and batched URL uploads.
 
-`cacheLocation` (`~/.cache/rapidata/upload_cache`) and `cacheShards` (128) are immutable — don't try to assign them.
+`failureTolerance` is validated to `0.0..1.0` (`ValueError` otherwise) and is overridden per call by `failure_tolerance` on `create_*_job_definition`.
 
-All config fields support environment-variable overrides with the `RAPIDATA_` prefix (e.g., `RAPIDATA_maxWorkers=10`, `RAPIDATA_DISABLE_OTLP=1`).
+`checkForExplicitContent = False` only *requests* a skip of the server-side explicit-content check applied on job assignment — it is honored only if your account is permitted; otherwise the check still runs and `assign_job` logs a warning.
+
+`cacheLocation` (`~/.cache/rapidata/upload_cache`) and `cacheShards` (default 32) are immutable at runtime — don't try to assign them; set `cacheShards` via `RAPIDATA_cacheShards`. Each shard holds open file handles, and 32 comfortably covers the default `maxWorkers` of 25.
+
+**`OSError: [Errno 24] Too many open files`:** raise `ulimit -n`, lower `RAPIDATA_cacheShards` / `RAPIDATA_maxWorkers`, or set `cacheToDisk = False` (in-memory cache, no cache file descriptors, but you lose cross-run upload dedup).
+
+All config fields support environment-variable overrides with the `RAPIDATA_` prefix (e.g., `RAPIDATA_maxWorkers=10`, `RAPIDATA_failureTolerance=0.0`, `RAPIDATA_DISABLE_OTLP=1`).
 
 **Client authentication** is also resolved from environment variables: `RAPIDATA_CLIENT_ID` and `RAPIDATA_CLIENT_SECRET` are used before falling back to `~/.config/rapidata/credentials.json` and browser login. `RAPIDATA_ENVIRONMENT` overrides the API endpoint (default: `rapidata.ai`). `RAPIDATA_TOKEN_FILE` points the client at a shared access-token file (equivalent to `token_file=`). Empty values are treated as unset and fall through to the next resolution layer.
 
@@ -829,7 +1038,7 @@ worker.set_token(coordinator.get_token())  # renew a running worker later
 
 ## Context Management
 
-Datapoint contexts have a backend maximum of **400 characters** (`MAX_CONTEXT_LENGTH`). The backend rejects longer values; a warning is logged at job/order creation time.
+Datapoint contexts have a backend maximum of **400 characters** (`MAX_CONTEXT_LENGTH`). Contexts over that limit are shortened automatically before upload — this cannot be turned off.
 
 `ContextManager` is importable from the top-level `rapidata` package and is exposed as `client.context` on every `RapidataClient` instance.
 
@@ -839,7 +1048,7 @@ Shorten a single context for the given question. Results are cached server-side.
 
 ### `client.context.shorten_contexts(pairs) → list[str]`
 
-Shorten a batch of `(context, question)` pairs in one request. Returns shortened contexts in the same order as `pairs`.
+Shorten a batch of `(context, question)` pairs. Returns shortened contexts in the same order as `pairs`. Batches of ≤10 pairs go out as a single request; larger batches are split into chunks of 10 and sent concurrently using `rapidata_config.upload.maxWorkers`, with a `Shortening contexts` progress bar (suppressed by `rapidata_config.logging.silent_mode`).
 
 ```python
 # Single context
@@ -857,11 +1066,13 @@ shortened = client.context.shorten_contexts([
 
 ### Automatic shortening at job/order creation
 
-Set `rapidata_config.upload.autoShortenContext = True` (default `False`) to have any context exceeding 400 characters automatically shortened against the task instruction before upload. When no instruction is available, the setting is ignored and a warning is logged instead.
+Any context exceeding 400 characters is **always** shortened against the task instruction before upload — there is no way to disable this. A warning reports how many contexts were shortened, and per-context before/after lengths are logged at info level. If shortening returns an empty result the original context is kept and a warning is logged.
+
+Set `rapidata_config.upload.contextShortening = True` (default `False`) to shorten **every** context, not just over-long ones.
 
 ```python
 from rapidata import rapidata_config
-rapidata_config.upload.autoShortenContext = True
+rapidata_config.upload.contextShortening = True
 ```
 
 ## Human Prompting Best Practices
