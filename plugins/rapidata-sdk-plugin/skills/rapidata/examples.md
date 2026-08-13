@@ -495,6 +495,10 @@ job_def = client.job.create_ranking_job_definition(
     instruction="Which image looks better?",
     datapoints=[["img1.jpg", "img2.jpg", "img3.jpg", "img4.jpg"]],  # outer list = independent rankings
     comparison_budget_per_ranking=50,
+    # With >10 datapoints, matchups are chosen adaptively (Elo-style) within the
+    # budget and random_comparisons_ratio applies. With <=10 (as here), every
+    # unique pair is compared with the budget spread evenly across pairs, and
+    # random_comparisons_ratio has no effect.
     random_comparisons_ratio=0.5,
 )
 job = audience.assign_job(job_def)
@@ -518,6 +522,8 @@ order = client.order.create_ranking_order(
     ],
     comparison_budget_per_ranking=50,
     responses_per_comparison=1,
+    # random_comparisons_ratio only applies to rankings with >10 datapoints; for
+    # <=10 (as here) every unique pair is compared and this is ignored.
     random_comparisons_ratio=0.5,
     contexts=["A photorealistic landscape"],
 ).run()
@@ -673,6 +679,45 @@ for p in benchmark.participants:
 
 # Submit all at once
 benchmark.run()
+```
+
+## Model Benchmark — Recovering a Partial Upload
+
+If some samples fail to upload (e.g. a flaky network), recover without re-sending
+everything. `add_model` already runs an automatic recovery sweep on its own
+failures, but you can also drive recovery yourself on any participant — including
+ones fetched from `benchmark.participants`.
+
+```python
+from rapidata import RapidataClient, SampleUpload
+
+client = RapidataClient()
+benchmark = client.mri.get_benchmark_by_id("benchmark_id")
+
+MEDIA = ["dalle_mountain.png", "dalle_city.png", "dalle_wizard.png"]
+IDENTIFIERS = ["A serene mountain landscape", "A futuristic city at night", "A wise wizard portrait"]
+
+participant = next(p for p in benchmark.participants if p.name == "DALL-E 3")
+
+# Ask the server how many samples each identifier is still short (server truth).
+# Fully-uploaded identifiers are omitted, so an empty Counter means nothing is
+# outstanding.
+missing = participant.missing_counts(IDENTIFIERS)
+if missing:
+    print(f"Still short: {dict(missing)}")
+
+    # Re-send only the assets for the short identifiers. Safe to call repeatedly:
+    # the backend rejects samples the participant already holds, so nothing is
+    # duplicated, and it stops early once a round stops closing the gap. Returns
+    # the identifiers uploaded across all rounds and any still short on the last.
+    uploaded, failures = participant.retry_missing(MEDIA, IDENTIFIERS)
+    print(f"uploaded {len(uploaded)} across all rounds")
+
+    # Each failure's item is a SampleUpload(media, identifier) you can re-submit
+    # directly; it also carries the failure reason and backend trace id.
+    for fu in failures:
+        sample: SampleUpload = fu.item
+        print(f"still failed: {sample} — {fu.error_message} (trace {fu.trace_id})")
 ```
 
 ## Handling Failed Uploads

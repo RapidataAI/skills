@@ -112,9 +112,14 @@ job_definition = client.job.create_free_text_job_definition(
 | `datapoints` | list[list[str]] | Groups: `[["img1","img2","img3"], ...]`; each inner list is one independent ranking set |
 | `comparison_budget_per_ranking` | int | Total comparisons per ranking group |
 | `responses_per_comparison` | int | Responses per individual comparison (default 1); replaces `responses_per_datapoint` for ranking |
-| `random_comparisons_ratio` | float | Ratio of random vs targeted comparisons (0-1, default 0.5) |
+| `random_comparisons_ratio` | float | Ratio of random vs targeted comparisons (0-1, default 0.5). Ignored for rankings of ≤10 datapoints (see below) |
 
 `responses_per_datapoint`, `answer_options`, `a_b_names`, `confidence_threshold`, and `quorum_threshold` are not available for ranking jobs.
+
+**Matchup behavior by ranking size.** How a ranking group is compared depends on how many datapoints it holds:
+
+- **More than 10 datapoints:** matched adaptively (Elo-style) within `comparison_budget_per_ranking`; `random_comparisons_ratio` applies as described above.
+- **10 or fewer datapoints:** every unique pair is compared, with the budget spread evenly across pairs (the total is rounded down to a multiple of the pair count; every pair is compared at least once even if the budget is smaller than the pair count). `random_comparisons_ratio` does **not** apply in this case.
 
 ## Audiences
 
@@ -570,10 +575,11 @@ The exception message annotates each item with `stage=…`, `http_status=…` an
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `item` | Datapoint | The datapoint that failed |
+| `item` | Datapoint \| SampleUpload | The item that failed. A `Datapoint` for job/order uploads; a `SampleUpload` (media/identifier pair) for benchmark participant uploads (`upload_media` / `retry_missing`) |
 | `error_message` / `error_type` | str | Failure reason and exception type |
 | `stage` | `str \| None` | Remote-URL ingestion stage: `"download"`, `"redirect"`, `"content_type"`, `"decode"`, `"timeout"`, `"size"`, `"validation"`, `"internal"`. `None` for local-file and datapoint-creation failures |
 | `http_status` | `int \| None` | Origin server's HTTP status, e.g. `403` |
+| `trace_id` | `str \| None` | Backend trace id for the failure, taken from the `RapidataError` (the `x-trace-id` response header, falling back to the `traceId` in the problem+json body) |
 
 Only `internal` is a Rapidata-side fault — every other stage is caller-actionable. `format_error_details()` emits `Stage:` and `HTTP Status:` lines when these are present. Datapoint-level asset failures only propagate `stage` / `http_status` when all blocking asset failures agree on a single value; otherwise both are `None`.
 
@@ -721,7 +727,11 @@ benchmark.evaluate_model(
     data_type="media",   # "media" (default) or "text"
 )
 
-# Or add a model without submitting (for more control)
+# Or add a model without submitting (for more control). If any sample fails to
+# upload, add_model automatically runs a recovery sweep (retry_missing) that diffs
+# intended samples against server state and re-uploads only the difference; any
+# still-failing samples are logged individually (first 5, then "… and N more") and
+# the warning points at participant.retry_missing(...) / participant.missing_counts(...).
 participant = benchmark.add_model(
     name="MyModel_v3",
     media=["mountain_v3.png", "city_v3.png"],
@@ -729,12 +739,33 @@ participant = benchmark.add_model(
     data_type="media",
 )
 
-# Upload additional media to the same participant
-participant.upload_media(
+# Upload additional media to the same participant. Returns
+# (identifiers uploaded, failures) where failures is list[FailedUpload[SampleUpload]].
+# Raises ValueError if assets and identifiers differ in length.
+uploaded, failed = participant.upload_media(
     assets=["mountain_v3_extra.png"],
     identifiers=["A serene mountain landscape"],
     data_type="media",
 )
+
+# Recover a partial upload — ask the server which identifiers are still short and
+# re-send every asset belonging to those identifiers. Safe to call repeatedly (the
+# backend rejects samples the participant already holds, so no duplication) and stops
+# early once a round stops closing the gap. Works for any participant, including ones
+# fetched from benchmark.participants. Raises ValueError on assets/identifiers length
+# mismatch. Returns (identifiers uploaded across all rounds, failures still short on
+# the last round → list[FailedUpload[SampleUpload]]).
+uploaded, still_failed = participant.retry_missing(
+    assets=["mountain_v3.png", "city_v3.png"],
+    identifiers=["A serene mountain landscape", "A futuristic city"],
+    data_type="media",
+)
+
+# Per-identifier count (server truth) of how many samples are still outstanding.
+# Fully-uploaded identifiers are omitted, so an empty Counter means nothing is short.
+missing = participant.missing_counts(
+    identifiers=["A serene mountain landscape", "A futuristic city"],
+)  # Counter[str]
 
 # Submit individually or all at once
 participant.run()       # Submit one participant
@@ -807,6 +838,21 @@ leaderboard.view()
 # Find existing benchmarks
 benchmarks = client.mri.find_benchmarks(name="AI Art", amount=10)
 benchmark = client.mri.get_benchmark_by_id("benchmark_id")
+```
+
+### `SampleUpload`
+
+Importable from the top-level `rapidata` package. A frozen dataclass representing one media/identifier pair as submitted to a participant. It is the `item` carried by each `FailedUpload` returned from `upload_media` / `retry_missing`, so a caller can re-submit a failed pair directly.
+
+```python
+from rapidata import SampleUpload
+
+@dataclass(frozen=True)
+class SampleUpload:
+    media: str        # media asset (local path or URL) or text content
+    identifier: str   # the benchmark identifier/prompt the media was paired with
+
+    def __str__(self) -> str: ...   # "identifier (media)"
 ```
 
 ### `Tag` and `Origin`

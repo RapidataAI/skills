@@ -9,7 +9,7 @@ Rapidata connects you with distributed human labelers worldwide for fast, high-q
 
 ## Before you start: check the skill is up to date
 
-This skill is pinned to **Rapidata SDK v3.19.2**. Run this check **once at the start of a Rapidata task** (not on every call) to confirm the user's runtime matches the skill:
+This skill is pinned to **Rapidata SDK v3.19.3**. Run this check **once at the start of a Rapidata task** (not on every call) to confirm the user's runtime matches the skill:
 
 ```bash
 python -c "import rapidata; print(rapidata.__version__)" 2>/dev/null \
@@ -23,7 +23,7 @@ Compare the output to the pinned version above:
      - Re-run the install command to pull the latest: `/install-plugin https://github.com/RapidataAI/skills`, **or**
      - Use the plugin manager: `/plugin` → `rapidata-sdk-plugin` → update.
   2. Tell the user clearly:
-     > ⚠️ The Rapidata skill is pinned to v3.19.2 but v{installed} is installed — the skill docs may be out of date. I've suggested updating the plugin; if the update isn't available yet, I'll proceed with the documented API and flag any surprises.
+     > ⚠️ The Rapidata skill is pinned to v3.19.3 but v{installed} is installed — the skill docs may be out of date. I've suggested updating the plugin; if the update isn't available yet, I'll proceed with the documented API and flag any surprises.
   3. Proceed using the documented API. If you hit an unexpected error (missing attribute, changed signature), stop and tell the user the skill is likely the cause — don't guess at the new API.
 
 - **Installed < pinned** — the user's runtime is older than this skill. Suggest `pip install -U rapidata` so the runtime matches.
@@ -219,6 +219,8 @@ order = client.order.create_ranking_order(
 order.display_progress_bar()
 results = order.get_results()
 ```
+
+**Small rankings are matched exhaustively.** A ranking with **more than 10 datapoints** is matched adaptively (Elo-style) within `comparison_budget_per_ranking`, and `random_comparisons_ratio` applies as usual. A ranking with **10 or fewer datapoints** instead compares every unique pair, spreading the budget evenly across pairs (rounded down to a multiple of the pair count; every pair is compared at least once even if the budget is smaller than the pair count) — here `random_comparisons_ratio` has **no effect**.
 
 ### Locate
 
@@ -680,11 +682,25 @@ participant = benchmark.add_model(
 )
 
 # Upload additional media to the same participant
-participant.upload_media(
+uploaded, failed = participant.upload_media(
     assets=["mountain_v3_extra.png"],
     identifiers=["A serene mountain landscape"],
     data_type="media",
 )
+# Returns (identifiers uploaded, list[FailedUpload[SampleUpload]]). Each FailedUpload
+# carries the media/identifier pair (.item, a SampleUpload), the reason, and a trace id,
+# so a failed pair can be re-submitted directly. Raises ValueError if assets and
+# identifiers differ in length.
+
+# Recover a partial upload (server truth — works for any participant, incl. ones from
+# benchmark.participants). add_model already runs this sweep automatically on failure.
+missing = participant.missing_counts(identifiers)   # Counter[identifier -> samples still short]; empty == done
+uploaded, still_failed = participant.retry_missing(  # re-sends assets for short identifiers
+    assets=["mountain_v3_extra.png"],
+    identifiers=["A serene mountain landscape"],
+    data_type="media",
+)
+# Safe to call repeatedly (the backend rejects samples already held, so no duplication).
 
 # Submit individually or all at once
 participant.run()       # Submit one participant
