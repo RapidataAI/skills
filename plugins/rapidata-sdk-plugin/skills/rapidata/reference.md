@@ -715,7 +715,7 @@ leaderboard = benchmark.create_leaderboard(
     # settings=[...],
     # included_tags=["outdoor"],         # Optional: only collect matchups for prompts carrying one of these tags
     # excluded_tags=["nsfw"],            # Optional: skip prompts carrying any of these tags (always wins)
-    # vote_aggregation="AllVotes",       # "AllVotes" (default) or "MajorityVote" — how matchup votes are aggregated
+    # vote_aggregation=VoteAggregation.MAJORITY_VOTE,  # VoteAggregation.MAJORITY_VOTE (default) or ALL_VOTES — how matchup votes are aggregated
     # benchmarkDescription="...",        # Optional: description for a newly created benchmark (max 2000 chars; ignored if benchmark already exists)
 )
 
@@ -820,13 +820,21 @@ matrix_bm = benchmark.get_win_loss_matrix(                 # Pairwise wins/losse
 for job in leaderboard.jobs:
     job_results = job.get_results()
 
-# Update leaderboard config live
-leaderboard.name = "Realism (Updated)"
-leaderboard.level_of_detail = "very high"      # Named level or a positive int response budget
-leaderboard.min_responses_per_matchup = 7
-leaderboard.vote_aggregation = "MajorityVote"  # "AllVotes" or "MajorityVote"; only affects future runs
+# Update leaderboard config live — every mutable setting goes through update();
+# only the arguments passed change, all in one PATCH request.
+leaderboard.update(
+    name="Realism (Updated)",                        # non-empty str
+    level_of_detail="very high",                     # Named level or a positive int response budget
+    min_responses_per_matchup=7,                     # int >= 3 (bool rejected)
+    vote_aggregation=VoteAggregation.MAJORITY_VOTE,  # re-counts already-collected responses
+)
 
-# Read-only leaderboard properties
+# Read-only leaderboard properties (mutate via update(), never by assignment —
+# assigning to any of these raises AttributeError)
+print(leaderboard.name)                     # str
+print(leaderboard.level_of_detail)          # Named level or "custom"
+print(leaderboard.min_responses_per_matchup)
+print(leaderboard.vote_aggregation)  # VoteAggregation.MAJORITY_VOTE / ALL_VOTES
 print(leaderboard.response_budget)   # Exact budget behind level_of_detail
 print(leaderboard.included_tags)     # Copies; empty list when unset. Fixed at creation —
 print(leaderboard.excluded_tags)     # create a new leaderboard to re-scope
@@ -909,9 +917,74 @@ Replaces the tags and/or sets the origin of an already-registered prompt. A fiel
 
 ```python
 print(leaderboard.level_of_detail)   # "low"
-leaderboard.level_of_detail = 5000
+leaderboard.update(level_of_detail=5000)
 print(leaderboard.level_of_detail)   # "custom"
 print(leaderboard.response_budget)   # 5000
+```
+
+### Updating a leaderboard (`leaderboard.update()`)
+
+`update()` is the single entry point for every mutable leaderboard setting. The property setters that used to back this (`leaderboard.name = ...`, `leaderboard.level_of_detail = ...`, `leaderboard.min_responses_per_matchup = ...`) have been **removed** — those properties are now read-only and assigning to them raises `AttributeError`.
+
+```python
+def update(
+    self,
+    name: str | None = None,
+    level_of_detail: LevelOfDetail | int | None = None,
+    min_responses_per_matchup: int | None = None,
+    vote_aggregation: VoteAggregation | None = None,
+) -> None: ...
+```
+
+Only the arguments you pass are changed; anything omitted keeps its stored value, and all changes go out in a single PATCH request. A no-argument `update()` sends an empty patch (it does not resend the current state).
+
+| Argument | Validation / effect |
+|----------|---------------------|
+| `name` | Non-empty string (≥ 1 char), else `ValueError` |
+| `level_of_detail` | Named level (`"debug"`/`"low"`/`"medium"`/`"high"`/`"very high"`) or a positive int budget. Takes effect for future evaluations; already-computed standings are not recomputed |
+| `min_responses_per_matchup` | `int` and ≥ `3`; `bool` is explicitly rejected, else `ValueError` |
+| `vote_aggregation` | A `VoteAggregation` member, else `ValueError`. Because standings are derived from raw responses on every read, changing this re-counts already-collected responses (no re-evaluation needed) |
+
+```python
+leaderboard.update(level_of_detail="high")        # was: leaderboard.level_of_detail = "high"
+leaderboard.update(min_responses_per_matchup=5)   # was: leaderboard.min_responses_per_matchup = 5
+leaderboard.update(name="Realism v2")             # was: leaderboard.name = "Realism v2"
+
+# Multiple fields in one request:
+leaderboard.update(
+    name="Realism v2",
+    level_of_detail="high",
+    min_responses_per_matchup=5,
+    vote_aggregation=VoteAggregation.MAJORITY_VOTE,
+)
+```
+
+### Vote aggregation (`VoteAggregation`)
+
+`VoteAggregation` controls how the individual annotator responses on a single matchup (one comparison of two models on one prompt) are aggregated into that matchup's result. Importable from the top-level `rapidata` package (and from `rapidata.types`).
+
+```python
+from rapidata import VoteAggregation
+```
+
+| Member | Meaning |
+|--------|---------|
+| `VoteAggregation.MAJORITY_VOTE` | Collapses each matchup to a single win for the side the majority of responses picked, splitting ties 0.5/0.5. Every matchup weighs the same regardless of how many responses it collected. **Default.** |
+| `VoteAggregation.ALL_VOTES` | Counts every individual response as its own matchup, so heavily-answered matchups dominate the standings |
+
+- Set at creation via `benchmark.create_leaderboard(..., vote_aggregation=...)` (defaults to `VoteAggregation.MAJORITY_VOTE`).
+- Read back via the read-only `leaderboard.vote_aggregation` property (returns a `VoteAggregation`). For a leaderboard read from the benchmark's listing the value is lazily fetched on first access and cached.
+- Change afterwards via `leaderboard.update(vote_aggregation=...)`.
+
+```python
+from rapidata import VoteAggregation
+
+leaderboard = benchmark.create_leaderboard(
+    name="Realism",
+    instruction="Which image is more realistic?",
+    vote_aggregation=VoteAggregation.ALL_VOTES,
+)
+print(leaderboard.vote_aggregation)   # VoteAggregation.ALL_VOTES
 ```
 
 ### Prompt-tag scoping (`included_tags` / `excluded_tags`)

@@ -9,7 +9,7 @@ Rapidata connects you with distributed human labelers worldwide for fast, high-q
 
 ## Before you start: check the skill is up to date
 
-This skill is pinned to **Rapidata SDK v3.19.3**. Run this check **once at the start of a Rapidata task** (not on every call) to confirm the user's runtime matches the skill:
+This skill is pinned to **Rapidata SDK v3.19.4**. Run this check **once at the start of a Rapidata task** (not on every call) to confirm the user's runtime matches the skill:
 
 ```bash
 python -c "import rapidata; print(rapidata.__version__)" 2>/dev/null \
@@ -23,7 +23,7 @@ Compare the output to the pinned version above:
      - Re-run the install command to pull the latest: `/install-plugin https://github.com/RapidataAI/skills`, **or**
      - Use the plugin manager: `/plugin` → `rapidata-sdk-plugin` → update.
   2. Tell the user clearly:
-     > ⚠️ The Rapidata skill is pinned to v3.19.3 but v{installed} is installed — the skill docs may be out of date. I've suggested updating the plugin; if the update isn't available yet, I'll proceed with the documented API and flag any surprises.
+     > ⚠️ The Rapidata skill is pinned to v3.19.4 but v{installed} is installed — the skill docs may be out of date. I've suggested updating the plugin; if the update isn't available yet, I'll proceed with the documented API and flag any surprises.
   3. Proceed using the documented API. If you hit an unexpected error (missing attribute, changed signature), stop and tell the user the skill is likely the cause — don't guess at the new API.
 
 - **Installed < pinned** — the user's runtime is older than this skill. Suggest `pip install -U rapidata` so the runtime matches.
@@ -661,7 +661,8 @@ leaderboard = benchmark.create_leaderboard(
     # settings=[...],
     # included_tags=["outdoor"],         # Optional: only collect matchups for prompts carrying one of these tags
     # excluded_tags=["nsfw"],            # Optional: skip prompts carrying one of these tags (always wins)
-    # vote_aggregation="AllVotes",       # "AllVotes" (default) or "MajorityVote" — how matchup votes are aggregated
+    # vote_aggregation=VoteAggregation.MAJORITY_VOTE,  # default; or VoteAggregation.ALL_VOTES — how a matchup's
+    #                                    #   individual responses are aggregated (import VoteAggregation from rapidata)
     # benchmarkDescription="...",        # Optional: description for a newly created benchmark (max 2000 chars; ignored if benchmark already exists)
 )
 
@@ -752,15 +753,23 @@ matrix_bm = benchmark.get_win_loss_matrix(                 # Pairwise wins/losse
 for job in leaderboard.jobs:
     job_results = job.get_results()
 
-# Update leaderboard config live
-leaderboard.name = "Realism (Updated)"
-leaderboard.level_of_detail = "very high"      # Or a custom int budget: leaderboard.level_of_detail = 5000
-leaderboard.min_responses_per_matchup = 7
-leaderboard.vote_aggregation = "MajorityVote"  # "AllVotes" or "MajorityVote"; only affects future runs
+# Update leaderboard config live — all mutation goes through update(); the old property
+# setters (leaderboard.name = ..., .level_of_detail = ..., .min_responses_per_matchup = ...)
+# were removed and now raise AttributeError. Only the arguments you pass are changed;
+# omitted ones keep their stored value, and everything goes out in one PATCH request.
+leaderboard.update(
+    name="Realism (Updated)",                     # non-empty string
+    level_of_detail="very high",                  # named level or a positive int budget (e.g. 5000)
+    min_responses_per_matchup=7,                  # int >= 3 (bool rejected); takes effect for future evaluations
+    vote_aggregation=VoteAggregation.MAJORITY_VOTE,  # re-counts already-collected responses (no re-evaluation)
+)
+# A no-argument update() sends an empty patch. Changing level_of_detail / min_responses_per_matchup
+# only affects future evaluations; already-computed standings are not recomputed.
 
-# Reading back the detail level
+# Reading back the config (all read-only properties)
 print(leaderboard.level_of_detail)   # A named level only on an exact budget match, otherwise "custom"
 print(leaderboard.response_budget)   # The exact budget behind it, e.g. 5000
+print(leaderboard.vote_aggregation)  # A VoteAggregation member (lazily fetched for leaderboards read from a listing)
 print(leaderboard.included_tags, leaderboard.excluded_tags)  # Fixed at creation — create a new leaderboard to re-scope
 
 # Open in browser

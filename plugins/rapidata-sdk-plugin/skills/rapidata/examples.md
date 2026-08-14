@@ -576,7 +576,7 @@ flow.update_config(instruction="Which image looks better overall?", max_response
 ## Model Benchmark (MRI)
 
 ```python
-from rapidata import RapidataClient, Tag
+from rapidata import RapidataClient, Tag, VoteAggregation
 
 client = RapidataClient()
 
@@ -623,11 +623,27 @@ leaderboard = benchmark.create_leaderboard(
     # named level ("debug" 20, "low" 2000, "medium" 4000, "high" 8000,
     # "very high" 16000).
     level_of_detail=5000,
+    # How per-matchup annotator responses are aggregated into a matchup result:
+    # MAJORITY_VOTE (default) collapses each matchup to one win (ties split 0.5/0.5)
+    # so every matchup weighs the same; ALL_VOTES counts each response as its own
+    # matchup, so heavily-answered matchups dominate the standings.
+    vote_aggregation=VoteAggregation.ALL_VOTES,
 )
 
 print(leaderboard.included_tags, leaderboard.excluded_tags)  # copies; [] when unset
 print(leaderboard.response_budget)  # 5000
 print(leaderboard.level_of_detail)  # "custom" — a name only on an exact budget match
+print(leaderboard.vote_aggregation)  # VoteAggregation.ALL_VOTES
+
+# name, level_of_detail, min_responses_per_matchup, and vote_aggregation are
+# read-only — assigning to them raises AttributeError. Change any of them through
+# update(); only the arguments you pass change, and all go out in one request.
+leaderboard.update(
+    name="Prompt Adherence v2",
+    level_of_detail="high",        # named level or a positive integer budget
+    min_responses_per_matchup=5,   # must be an int >= 3
+    vote_aggregation=VoteAggregation.MAJORITY_VOTE,
+)
 
 # Evaluate models (creates, uploads, and submits in one step)
 benchmark.evaluate_model(
