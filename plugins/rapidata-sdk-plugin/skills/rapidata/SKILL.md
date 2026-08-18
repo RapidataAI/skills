@@ -9,7 +9,7 @@ Rapidata connects you with distributed human labelers worldwide for fast, high-q
 
 ## Before you start: check the skill is up to date
 
-This skill is pinned to **Rapidata SDK v3.19.4**. Run this check **once at the start of a Rapidata task** (not on every call) to confirm the user's runtime matches the skill:
+This skill is pinned to **Rapidata SDK v3.20.0**. Run this check **once at the start of a Rapidata task** (not on every call) to confirm the user's runtime matches the skill:
 
 ```bash
 python -c "import rapidata; print(rapidata.__version__)" 2>/dev/null \
@@ -23,7 +23,7 @@ Compare the output to the pinned version above:
      - Re-run the install command to pull the latest: `/install-plugin https://github.com/RapidataAI/skills`, **or**
      - Use the plugin manager: `/plugin` → `rapidata-sdk-plugin` → update.
   2. Tell the user clearly:
-     > ⚠️ The Rapidata skill is pinned to v3.19.4 but v{installed} is installed — the skill docs may be out of date. I've suggested updating the plugin; if the update isn't available yet, I'll proceed with the documented API and flag any surprises.
+     > ⚠️ The Rapidata skill is pinned to v3.20.0 but v{installed} is installed — the skill docs may be out of date. I've suggested updating the plugin; if the update isn't available yet, I'll proceed with the documented API and flag any surprises.
   3. Proceed using the documented API. If you hit an unexpected error (missing attribute, changed signature), stop and tell the user the skill is likely the cause — don't guess at the new API.
 
 - **Installed < pinned** — the user's runtime is older than this skill. Suggest `pip install -U rapidata` so the runtime matches.
@@ -94,6 +94,7 @@ The file is just one transport. To move the token over any transport (key-value 
 - `client.order` — legacy order API (still supported)
 - `client.signals` — run a labeling job on a repeating schedule
 - `client.context` — shorten over-long datapoint contexts against a specific question
+- `client.billing` — read the current billing period's cost and remaining credit (organization-level)
 
 ## New API: Job Definitions + Audiences (Recommended)
 
@@ -831,6 +832,34 @@ signals = client.signals.find_signals(name="alignment")
 **Signal properties:** `id`, `name`, `description`, `audience_id`, `job_definition_id`, `revision_number`, `interval_hours`, `next_run_at`, `last_run_at`, `is_paused`, `is_public`, `created_at`.
 
 Note: `signal.pause()` only affects the scheduler — manual `trigger()` calls still fire on a paused signal.
+
+## Billing
+
+`client.billing` reads how much the current billing period has cost so far and how much credit is left. Billing is settled per **organization**, so the figures cover everything the organization spent — not only the jobs this client created.
+
+```python
+from rapidata import RapidataClient, BillingPeriod, RapidataBillingManager
+
+client = RapidataClient()
+
+# The billing period currently accruing cost. Raises RapidataError (status 404)
+# if the organization has no active period (one only opens once there is something to bill).
+period = client.billing.get_current_billing_period()   # -> BillingPeriod
+```
+
+`BillingPeriod` is a frozen dataclass; all amounts are US dollars rounded to the cent, and each read is a snapshot (fetch again for an up-to-date figure):
+
+| Field | Description |
+|---|---|
+| `id` | The billing period's id. |
+| `start_date` / `end_date` | When the period starts and ends (`datetime`). |
+| `status` | `"Open"` while still accruing cost; otherwise one of `"Invoiced"`, `"Void"`, `"Reconciling"`, `"PendingReview"`, `"Closed"`. |
+| `outstanding_cost` | Net cost accrued so far (`gross_cost` minus `discount`) — what the period would be invoiced for today. |
+| `gross_cost` | Cost accrued so far, before discounts. |
+| `discount` | Discounts applied to the period so far. |
+| `response_count` | Number of billable responses collected in the period (`int`). |
+| `credits` | Prepaid credit still available, or `None` when the organization is billed for usage rather than from a prepaid balance. An organization-level balance that carries across periods. |
+| `effective_limit` | The most the organization may spend this period, or `None` when it spends without a cap. On a prepaid plan this is the total credit granted, and `credits` is what remains of it. |
 
 ## Additional Resources
 

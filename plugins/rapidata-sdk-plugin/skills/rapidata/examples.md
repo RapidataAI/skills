@@ -846,6 +846,45 @@ job = audience.assign_job(job_def)
 print(job.estimated_cost.estimated_cost)
 ```
 
+## Checking Billing Spend and Remaining Credit
+
+Read how much the current billing period has cost so far and how much credit is
+left. Billing is settled per **organization**, so these figures cover everything
+the organization spent, not only the jobs this client created.
+
+```python
+from rapidata import RapidataClient
+from rapidata.rapidata_client.exceptions import RapidataError
+
+client = RapidataClient()
+
+try:
+    # Returns the period currently accruing cost. All amounts are in US dollars,
+    # rounded to the cent, and are a snapshot — fetch again for an up-to-date figure.
+    period = client.billing.get_current_billing_period()
+except RapidataError as e:
+    # A period only opens once there is something to bill.
+    if e.status_code == 404:
+        print("No active billing period yet.")
+        raise
+    raise
+
+# outstanding_cost is gross_cost minus discount — what the period would be
+# invoiced for today. status is "Open" while still accruing cost.
+print(
+    f"[{period.status}] {period.start_date:%Y-%m-%d} → {period.end_date:%Y-%m-%d}: "
+    f"${period.outstanding_cost} outstanding "
+    f"(${period.gross_cost} gross - ${period.discount} discount) "
+    f"over {period.response_count} responses"
+)
+
+# credits is the prepaid balance still available (an org-level balance that carries
+# across periods), or None when billed for usage rather than from a prepaid balance.
+# effective_limit is the most the org may spend this period, or None when uncapped.
+if period.credits is not None:
+    print(f"${period.credits} credit remaining of ${period.effective_limit} granted")
+```
+
 ## Context Shortening
 
 Contexts longer than 400 characters are **always** shortened automatically at job / order creation time (a warning reports how many were shortened) — this cannot be turned off. Use `client.context` to shorten them yourself beforehand, or opt into shortening *every* context.

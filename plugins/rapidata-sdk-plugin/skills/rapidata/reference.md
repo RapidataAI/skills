@@ -499,6 +499,39 @@ print(job.estimated_cost.estimated_cost)
 
 This is an **estimate, not the final bill**: it is based on a sample of the job's tasks scaled to the number of responses requested, so the amount actually charged can differ. Early stopping can also lower the final cost by collecting fewer responses than the maximum.
 
+## Billing
+
+`client.billing` (a `RapidataBillingManager`, created during client construction) reads how much the current billing period has cost so far and how much credit is left. Billing is settled per **organization**, so its figures cover everything the organization spent — not only the jobs this client created.
+
+```python
+period = client.billing.get_current_billing_period()   # BillingPeriod
+print(f"${period.outstanding_cost} accrued over {period.response_count} responses")
+```
+
+### `client.billing.get_current_billing_period() → BillingPeriod`
+
+Returns the billing period currently accruing cost. Raises `RapidataError` with status `404` if the organization has no active billing period (a period only opens once there is something to bill).
+
+### `BillingPeriod` fields
+
+A frozen dataclass. All amounts are in **US dollars**, rounded to the cent. Values are a snapshot — fetch again for an up-to-date figure. `BillingPeriod` (and `RapidataBillingManager`) are importable from the top-level `rapidata` package (and re-exported from `rapidata.rapidata_client`).
+
+```python
+from rapidata import BillingPeriod, RapidataBillingManager
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | str | The billing period's id |
+| `start_date` / `end_date` | datetime | When the period starts and ends |
+| `status` | str | Lifecycle status: `"Open"` while still accruing cost; otherwise one of `"Invoiced"`, `"Void"`, `"Reconciling"`, `"PendingReview"`, `"Closed"` |
+| `outstanding_cost` | float | Net cost accrued so far (`gross_cost` minus `discount`) — what the period would be invoiced for today |
+| `gross_cost` | float | Cost accrued so far, before discounts |
+| `discount` | float | Discounts applied to the period so far |
+| `response_count` | int | Number of billable responses collected in the period |
+| `credits` | `float \| None` | Prepaid credit still available, or `None` when the organization is billed for usage rather than from a prepaid balance. An organization-level balance that carries across periods |
+| `effective_limit` | `float \| None` | The most the organization may spend this period, or `None` when it spends without a cap. On a prepaid plan this is the total credit granted, and `credits` is what remains of it |
+
 ## Settings Reference
 
 All settings inherit from `RapidataSetting` and are importable from `rapidata`.
