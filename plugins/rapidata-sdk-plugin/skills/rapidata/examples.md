@@ -274,7 +274,7 @@ job.display_progress_bar()
 results = job.get_results()
 ```
 
-## Free-Text Length Constraints (legacy order API)
+## Free-Text Length Constraints
 
 Use length constraints sparingly. Free-text responses are already filtered by a built-in reasonableness check, so these settings are usually unnecessary and will reject otherwise valid answers. Only set them when the question genuinely demands a specific length.
 
@@ -286,8 +286,9 @@ from rapidata import (
 )
 
 client = RapidataClient()
+audience = client.audience.get_audience_by_id("global")
 
-order = client.order.create_free_text_order(
+job_def = client.job.create_free_text_job_definition(
     name="Caption Generation",
     instruction="Describe what's happening in this image in one sentence.",
     datapoints=["scene1.jpg", "scene2.jpg"],
@@ -295,7 +296,8 @@ order = client.order.create_free_text_order(
         FreeTextMinimumCharactersSetting(20),
         FreeTextMaxCharactersSetting(200),
     ],
-).run()
+)
+job = audience.assign_job(job_def)
 ```
 
 ## Custom Audience with Full Workflow
@@ -420,8 +422,6 @@ results = job.get_results()
 # and use the ready-to-go global pool: client.audience.get_audience_by_id("global").
 #
 # update_filters sets recruitment filters: CountryFilter / LanguageFilter (+ And/Or/Not).
-# UserScoreFilter / CampaignFilter / CustomFilter are order-only and raise
-# NotImplementedError here — pass them to client.order.create_*_order(filters=[...]).
 # DemographicFilter / AgeFilter / GenderFilter / DeviceFilter apply to graduates, so
 # use them with audience.filter(...) (see below).
 ```
@@ -457,31 +457,6 @@ job.display_progress_bar()
 results = job.get_results()
 ```
 
-## Order with Age / Gender / Device Filters
-
-`AgeFilter`, `GenderFilter`, and `DeviceFilter` apply to orders, not to audiences.
-
-```python
-from rapidata import (
-    RapidataClient,
-    AgeFilter, AgeGroup, GenderFilter, Gender, DeviceFilter, DeviceType,
-)
-
-client = RapidataClient()
-
-order = client.order.create_classification_order(
-    name="Mobile-only classification",
-    instruction="What product is shown?",
-    answer_options=["Phone", "Laptop", "Tablet"],
-    datapoints=["p1.jpg", "p2.jpg"],
-    filters=[
-        AgeFilter(age_groups=[AgeGroup.AGE_25_34, AgeGroup.AGE_35_44]),
-        GenderFilter(genders=[Gender.FEMALE]),
-        DeviceFilter(device_types=[DeviceType.MOBILE]),
-    ],
-).run()
-```
-
 ## Ranking via Job Definition API
 
 ```python
@@ -505,30 +480,6 @@ job = audience.assign_job(job_def)
 job.view()
 job.display_progress_bar()
 results = job.get_results()
-```
-
-## Ranking via Legacy Order API
-
-```python
-from rapidata import RapidataClient
-
-client = RapidataClient()
-
-order = client.order.create_ranking_order(
-    name="Image Quality Ranking",
-    instruction="Rank these images by visual quality",
-    datapoints=[
-        ["img1.jpg", "img2.jpg", "img3.jpg", "img4.jpg"],
-    ],
-    comparison_budget_per_ranking=50,
-    responses_per_comparison=1,
-    # random_comparisons_ratio only applies to rankings with >10 datapoints; for
-    # <=10 (as here) every unique pair is compared and this is ignored.
-    random_comparisons_ratio=0.5,
-    contexts=["A photorealistic landscape"],
-).run()
-order.display_progress_bar()
-results = order.get_results()
 ```
 
 ## Continuous Ranking Flow
@@ -894,7 +845,7 @@ if period.credits is not None:
 
 ## Context Shortening
 
-Contexts longer than 400 characters are **always** shortened automatically at job / order creation time (a warning reports how many were shortened) — this cannot be turned off. Use `client.context` to shorten them yourself beforehand, or opt into shortening *every* context.
+Contexts longer than 400 characters are **always** shortened automatically at job creation time (a warning reports how many were shortened) — this cannot be turned off. Use `client.context` to shorten them yourself beforehand, or opt into shortening *every* context.
 
 ```python
 from rapidata import RapidataClient, rapidata_config
@@ -913,7 +864,7 @@ shortened = client.context.shorten_contexts([
     ("Long scene description B ...", "How many people are visible?"),
 ])
 
-# Or shorten EVERY context (not just over-long ones) at job / order creation time
+# Or shorten EVERY context (not just over-long ones) at job creation time
 rapidata_config.upload.contextShortening = True
 
 job_def = client.job.create_classification_job_definition(
@@ -1028,44 +979,4 @@ token = coordinator.get_token()
 worker = RapidataClient(token=token)
 # Later, when a fresh token arrives, inject it without reconstructing the client:
 worker.set_token(fresh_token)  # used from the next request on
-```
-
-## Legacy Order API
-
-```python
-from rapidata import RapidataClient
-
-client = RapidataClient()
-
-# Classification order
-order = client.order.create_classification_order(
-    name="Image Classification",
-    instruction="What's in the image?",
-    answer_options=["Cat", "Dog", "Bird"],
-    datapoints=["img1.jpg", "img2.jpg"],
-    responses_per_datapoint=10,
-).run()
-
-order.display_progress_bar()
-results = order.get_results()
-
-# Comparison order
-order_b = client.order.create_compare_order(
-    name="Image Comparison",
-    instruction="Which is better?",
-    datapoints=[["a.jpg", "b.jpg"]],
-    responses_per_datapoint=10,
-).run()
-
-# Chain: start order_b only after order_a finishes
-order_c = client.order.create_classification_order(
-    name="Follow-up",
-    instruction="Tag the winners",
-    answer_options=["Good", "Bad"],
-    datapoints=["win1.jpg", "win2.jpg"],
-).run(after=order_b)
-
-# Pause / resume a running order
-order.pause()
-order.unpause()
 ```

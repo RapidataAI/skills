@@ -9,7 +9,7 @@ Rapidata connects you with distributed human labelers worldwide for fast, high-q
 
 ## Before you start: check the skill is up to date
 
-This skill is pinned to **Rapidata SDK v3.20.1**. Run this check **once at the start of a Rapidata task** (not on every call) to confirm the user's runtime matches the skill:
+This skill is pinned to **Rapidata SDK v3.21.0**. Run this check **once at the start of a Rapidata task** (not on every call) to confirm the user's runtime matches the skill:
 
 ```bash
 python -c "import rapidata; print(rapidata.__version__)" 2>/dev/null \
@@ -23,7 +23,7 @@ Compare the output to the pinned version above:
      - Re-run the install command to pull the latest: `/install-plugin https://github.com/RapidataAI/skills`, **or**
      - Use the plugin manager: `/plugin` → `rapidata-sdk-plugin` → update.
   2. Tell the user clearly:
-     > ⚠️ The Rapidata skill is pinned to v3.20.1 but v{installed} is installed — the skill docs may be out of date. I've suggested updating the plugin; if the update isn't available yet, I'll proceed with the documented API and flag any surprises.
+     > ⚠️ The Rapidata skill is pinned to v3.21.0 but v{installed} is installed — the skill docs may be out of date. I've suggested updating the plugin; if the update isn't available yet, I'll proceed with the documented API and flag any surprises.
   3. Proceed using the documented API. If you hit an unexpected error (missing attribute, changed signature), stop and tell the user the skill is likely the cause — don't guess at the new API.
 
 - **Installed < pinned** — the user's runtime is older than this skill. Suggest `pip install -U rapidata` so the runtime matches.
@@ -91,7 +91,6 @@ The file is just one transport. To move the token over any transport (key-value 
 - `client.audience` — create and find audiences
 - `client.flow` — continuous ranking flows
 - `client.mri` — model ranking insights / benchmarks
-- `client.order` — legacy order API (still supported)
 - `client.signals` — run a labeling job on a repeating schedule
 - `client.context` — shorten over-long datapoint contexts against a specific question
 - `client.billing` — read the current billing period's cost and remaining credit (organization-level)
@@ -188,7 +187,7 @@ job_def = client.job.create_compare_job_definition(
 
 ### Ranking
 
-Ranking is available via the **new job definition API**, the **legacy order API**, or via **continuous ranking flows** (see below).
+Ranking is available via the **new job definition API** or via **continuous ranking flows** (see below).
 
 ```python
 # New job definition API for ranking
@@ -204,21 +203,6 @@ job_def = client.job.create_ranking_job_definition(
 job = audience.assign_job(job_def)
 job.display_progress_bar()
 results = job.get_results()
-
-# Or use the legacy order API
-order = client.order.create_ranking_order(
-    name="Image Quality Ranking",
-    instruction="Rank these images by quality",
-    datapoints=[["img1.jpg", "img2.jpg", "img3.jpg"]],
-    comparison_budget_per_ranking=50,
-    responses_per_comparison=1,
-    data_type="media",
-    random_comparisons_ratio=0.5,
-    contexts=["Optional context"],
-).run()
-
-order.display_progress_bar()
-results = order.get_results()
 ```
 
 **Small rankings are matched exhaustively.** A ranking with **more than 10 datapoints** is matched adaptively (Elo-style) within `comparison_budget_per_ranking`, and `random_comparisons_ratio` applies as usual. A ranking with **10 or fewer datapoints** instead compares every unique pair, spreading the budget evenly across pairs (rounded down to a multiple of the pair count; every pair is compared at least once even if the budget is smaller than the pair count) — here `random_comparisons_ratio` has **no effect**.
@@ -424,7 +408,7 @@ job = audience.assign_job(job_def)
 - `audience.get_examples(amount=10, page=1)` — list qualification examples (returns DataFrame)
 - `audience.delete()` — delete the audience
 
-**Audience-supported filters:** `update_filters(...)` (recruitment filters) accepts `CountryFilter` and `LanguageFilter`; `.filter(...)` (deriving a filtered audience from graduates) additionally accepts `DemographicFilter` (age/gender/occupation), `AgeFilter`, `GenderFilter`, and `DeviceFilter`. Both accept the `AndFilter`/`OrFilter`/`NotFilter` combinators. `UserScoreFilter`, `CampaignFilter`, and `CustomFilter` are **order-only** and raise `NotImplementedError` on audiences — pass them as `filters=[...]` to `client.order.create_*_order(...)` instead.
+**Audience-supported filters:** `update_filters(...)` (recruitment filters) accepts `CountryFilter` and `LanguageFilter`; `.filter(...)` (deriving a filtered audience from graduates) additionally accepts `DemographicFilter` (age/gender/occupation), `AgeFilter`, `GenderFilter`, and `DeviceFilter`. Both accept the `AndFilter`/`OrFilter`/`NotFilter` combinators. `UserScoreFilter`, `CampaignFilter`, and `CustomFilter` are **not supported on audiences** and raise `NotImplementedError`.
 
 **Job / Job Definition methods:**
 - `job_def.preview()` — open browser preview of what labelers see
@@ -478,27 +462,11 @@ shortened = client.context.shorten_contexts([
 
 `ContextManager` is also importable directly: `from rapidata import ContextManager`.
 
-## Legacy Order API
+## Migration from the removed Order API
 
-Still fully supported. Creates and runs tasks in a single step (no separate audience/job definition). Available task types: `create_classification_order`, `create_compare_order`, `create_ranking_order`, `create_free_text_order`, `create_select_words_order`, `create_locate_order`, `create_draw_order`.
+The order-based API (`client.order`, `RapidataOrderManager`, `RapidataOrder`) was **removed** in v3.21.0 — `client.order` no longer exists, and `from rapidata import RapidataOrder` / `RapidataOrderManager` will fail. The job-definition + audience model is now the only supported path.
 
-```python
-order = client.order.create_classification_order(
-    name="Image Classification",
-    instruction="What's in the image?",
-    answer_options=["Cat", "Dog", "Bird"],
-    datapoints=["img1.jpg", "img2.jpg"],
-    responses_per_datapoint=10,
-    validation_set_id="validation_id",
-).run()
-
-order.display_progress_bar()
-results = order.get_results()
-```
-
-**Order methods:** `run(after=None)`, `pause()`, `unpause()`, `delete()`, `get_status()`, `display_progress_bar()`, `get_results(preliminary_results=False)`, `preview()`, `view()`. `run(after=...)` accepts another `RapidataOrder` (or its id) so the new order only starts after the prior one finishes.
-
-**Migration to new API:** Replace `create_classification_order()` / `create_compare_order()` with `create_classification_job_definition()` / `create_compare_job_definition()`, replace validation sets with audience examples, use `audience.assign_job()` instead of `.run()`. Locate, draw, select words, free text, and ranking are now also available via the new job definition API.
+To migrate: replace `create_classification_order()` / `create_compare_order()` (and the other `create_*_order()` methods) with the matching `create_*_job_definition()` on `client.job`, replace validation sets with audience qualification examples, and use `audience.assign_job(job_def)` instead of `.run()`. Classification, comparison, locate, draw, select words, free text, and ranking are all available via the job definition API.
 
 ## Settings
 
@@ -552,8 +520,8 @@ settings=[CustomSetting(key="my_flag", value="on")]              # Rapid-level f
 5. **Responses may exceed `responses_per_datapoint`** — concurrent labelers can cause slight overflow
 6. **Two early stopping strategies, mutually exclusive** — `confidence_threshold` (statistical, weighted by labeler trust scores) or `quorum_threshold` (stops when N responses agree); cannot use both at once
 7. **Early stopping only for unambiguous tasks** — both strategies work best when there's a clear correct answer
-8. **Failed uploads abort job-definition creation** — job definitions are created atomically: if more than `failure_tolerance` of the datapoints fail to upload, **no job definition is created** (`e.job_definition` is `None`) and at least one datapoint must always succeed. Fix the failing datapoints and call `e.retry()`, which re-uploads only the failed ones into the *same* dataset and finishes creating the definition; it raises `FailedUploadException` again if failures remain, so it can be looped. Within tolerance, the definition is created and a warning reports how many failed. Inspect failures via `e.failures_by_reason`, `e.failures_by_stage` (grouped by remote-URL ingestion stage — only `internal` is a Rapidata-side fault), and each `FailedUpload`'s `stage` / `http_status`. Legacy orders are unchanged: the order is still created and reachable via `e.order` (there `e.retry()` raises `RuntimeError` — use `dataset.add_datapoints(e.failed_uploads)`)
-9. **QR code printed on job/order creation** — when a job definition is created or an order enters preview, a terminal QR code linking to the campaign preview is printed automatically so you can open it on a phone; suppress it with `rapidata_config.logging.silent_mode = True`
+8. **Failed uploads abort job-definition creation** — job definitions are created atomically: if more than `failure_tolerance` of the datapoints fail to upload, **no job definition is created** (`e.job_definition` is `None`) and at least one datapoint must always succeed. Fix the failing datapoints and call `e.retry()`, which re-uploads only the failed ones into the *same* dataset and finishes creating the definition; it raises `FailedUploadException` again if failures remain, so it can be looped. Within tolerance, the definition is created and a warning reports how many failed. Inspect failures via `e.failures_by_reason`, `e.failures_by_stage` (grouped by remote-URL ingestion stage — only `internal` is a Rapidata-side fault), and each `FailedUpload`'s `stage` / `http_status`
+9. **Preview link printed on job creation** — when a job definition is created, a dashboard preview link is printed automatically (QR-code previews were removed in v3.21.0); suppress it with `rapidata_config.logging.silent_mode = True`
 10. **Context length limit is 400 characters** — the backend rejects contexts longer than 400 characters, so an over-long context is **always** shortened against the task instruction before upload (not optional; a warning reports how many were shortened). Set `rapidata_config.upload.contextShortening = True` to shorten *every* context, or use `client.context.shorten_context()` / `client.context.shorten_contexts()` to shorten manually.
 11. **Jobs can pause for manual review or funds** — `assign_job` always creates the job, but if its estimated cost exceeds your account balance it logs a cost warning and the job may pause until you top up. A job can also enter manual review (`ManualApproval`) or become spend-limited (`SpendLimited`) mid-run; since neither state completes on its own, `get_results()` raises an informative error naming the state instead of blocking — top up or wait for a reviewer, then retry.
 

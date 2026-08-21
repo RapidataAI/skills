@@ -105,7 +105,7 @@ job_definition = client.job.create_free_text_job_definition(
 )
 ```
 
-### Ranking (via `client.job.create_ranking_job_definition`, `client.order.create_ranking_order`, or `client.flow.create_ranking_flow`)
+### Ranking (via `client.job.create_ranking_job_definition` or `client.flow.create_ranking_flow`)
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -225,8 +225,8 @@ from rapidata import (
 )
 
 # --- Recruitment filters on an audience: CountryFilter and LanguageFilter
-#     (plus the And/Or/Not combinators). Order-only filters raise
-#     NotImplementedError here; DemographicFilter belongs on .filter() (below). ---
+#     (plus the And/Or/Not combinators). UserScoreFilter/CampaignFilter/CustomFilter
+#     raise NotImplementedError here; DemographicFilter belongs on .filter() (below). ---
 audience.update_filters([
     CountryFilter(country_codes=["US", "CA", "GB"]),                  # 2-letter ISO codes (uppercased)
     LanguageFilter(language_codes=["en", "fr"]),                      # 2-letter ISO language codes
@@ -235,17 +235,6 @@ audience.update_filters([
 # Combine filters with logic operators
 combined = OrFilter([filter1, filter2])
 audience.update_filters([NotFilter(combined)])
-
-# --- On an order: the order-only filters apply here (NOT on audiences) ---
-client.order.create_classification_order(
-    name="...", instruction="...", answer_options=["Yes", "No"], datapoints=["img.jpg"],
-    filters=[
-        UserScoreFilter(lower_bound=0.5, upper_bound=0.99),               # 0.0–1.0
-        AgeFilter(age_groups=[AgeGroup.AGE_25_34, AgeGroup.AGE_35_44]),
-        GenderFilter(genders=[Gender.MALE, Gender.FEMALE]),
-        DeviceFilter(device_types=[DeviceType.MOBILE, DeviceType.DESKTOP]),
-    ],
-)
 
 # Derive a filtered subset of a trained audience without re-onboarding labelers.
 # Supported filters for .filter(): CountryFilter, LanguageFilter, DemographicFilter,
@@ -271,46 +260,17 @@ us_or_ca_not_fr = base_audience.filter([
 | `CountryFilter` | `(country_codes: list[str])` | yes |
 | `LanguageFilter` | `(language_codes: list[str])` | yes |
 | `DemographicFilter` | `(identifier: str, values: list[str])` | `.filter()` only |
-| `UserScoreFilter` | `(lower_bound: float = 0.0, upper_bound: float = 1.0, dimension: str \| None = None)` | orders only |
-| `AgeFilter` | `(age_groups: list[AgeGroup])` | orders and `.filter()` |
-| `GenderFilter` | `(genders: list[Gender])` | orders and `.filter()` |
-| `DeviceFilter` | `(device_types: list[DeviceType])` | orders and `.filter()` |
-| `CampaignFilter` | `(campaign_ids: list[str])` | orders only |
-| `CustomFilter` | `(identifier: str, values: list[str])` | orders only |
+| `UserScoreFilter` | `(lower_bound: float = 0.0, upper_bound: float = 1.0, dimension: str \| None = None)` | no (raises `NotImplementedError`) |
+| `AgeFilter` | `(age_groups: list[AgeGroup])` | `.filter()` only |
+| `GenderFilter` | `(genders: list[Gender])` | `.filter()` only |
+| `DeviceFilter` | `(device_types: list[DeviceType])` | `.filter()` only |
+| `CampaignFilter` | `(campaign_ids: list[str])` | no (raises `NotImplementedError`) |
+| `CustomFilter` | `(identifier: str, values: list[str])` | no (raises `NotImplementedError`) |
 | `NotFilter` | `(filter: RapidataFilter)` | both |
 | `OrFilter` | `(filters: list[RapidataFilter])` | both |
 | `AndFilter` | `(filters: list[RapidataFilter])` | both |
 
-Note: recruitment filters set with `audience.update_filters(...)` are limited to `CountryFilter`, `LanguageFilter`, and the `And`/`Or`/`Not` combinators. `audience.filter(...)` (deriving a filtered audience from graduates) additionally accepts `DemographicFilter` (age/gender/occupation), `AgeFilter`, `GenderFilter`, and `DeviceFilter`. `UserScoreFilter`, `CampaignFilter`, and `CustomFilter` cannot be attached to audiences at all (they raise `NotImplementedError`) — use them as `filters=[...]` on `client.order.create_*_order(...)` instead.
-
-## Selections (Order API only)
-
-Selections control which rapids (validation, labeling, demographic) are presented during a session. Pass them to `client.order.create_*_order(..., selections=[...])`.
-
-```python
-from rapidata import (
-    LabelingSelection, ValidationSelection, ConditionalValidationSelection,
-    DemographicSelection, CappedSelection, ShufflingSelection, EffortSelection,
-    RapidataRetrievalMode,
-)
-
-LabelingSelection(amount=5)                                        # 5 labeling rapids per session
-LabelingSelection(amount=5, retrieval_mode=RapidataRetrievalMode.Sequential)
-ValidationSelection(validation_set_id="...", amount=1)
-ConditionalValidationSelection(
-    validation_set_id="...",
-    thresholds=[0.5, 0.8],
-    chances=[1.0, 0.2],
-    rapid_counts=[2, 1],
-    dimensions=["global"],          # `dimension` (singular) is deprecated
-)
-DemographicSelection(keys=["age", "gender"], max_rapids=1)
-CappedSelection(selections=[...], max_rapids=10)
-ShufflingSelection(selections=[...])
-EffortSelection(effort_budget=60)    # seconds of effort per session
-```
-
-`RapidataRetrievalMode` options: `Shuffled` (default), `Sequential`, `Random`.
+Note: recruitment filters set with `audience.update_filters(...)` are limited to `CountryFilter`, `LanguageFilter`, and the `And`/`Or`/`Not` combinators. `audience.filter(...)` (deriving a filtered audience from graduates) additionally accepts `DemographicFilter` (age/gender/occupation), `AgeFilter`, `GenderFilter`, and `DeviceFilter`. `UserScoreFilter`, `CampaignFilter`, and `CustomFilter` cannot be attached to audiences at all (they raise `NotImplementedError`).
 
 ## Results Format
 
@@ -374,7 +334,7 @@ EffortSelection(effort_budget=60)    # seconds of effort per session
 
 | Field | Meaning |
 |-------|---------|
-| `info.type` / `info.name` / `info.instruction` | Task type (e.g. `Compare`, `Classify`), the job/order name, and the instruction shown to labelers |
+| `info.type` / `info.name` / `info.instruction` | Task type (e.g. `Compare`, `Classify`), the job name, and the instruction shown to labelers |
 | `assetUrls` | Maps each option to the Rapidata-hosted URL of the exact file shown to labelers (random-UUID filenames; not encrypted) |
 | `winner` | Most-voted option by raw vote count (`argmax` of `aggregatedResults`); `null` when nothing was voted or the top count is tied |
 | `winnerIndex` | Position of `winner` in the ordered option list (`0` = first asset, `1` = second; `Both`/`Neither` appear as trailing indexes when voted); `null` under the same conditions as `winner` |
@@ -598,9 +558,9 @@ Tolerance behaviour:
 - Regardless of tolerance, at least one datapoint must upload successfully — a definition over an empty dataset is never created.
 - The failure ratio is always measured against the **original** datapoint count, so it stays meaningful across `retry()` calls.
 
-**Properties:** `failed_uploads` (list[Datapoint] — backward-compatible), `detailed_failures` (list[FailedUpload[Datapoint]]), `failures_by_reason` (dict[str, list[Datapoint]]), `failures_by_stage` (dict[str, list[Datapoint]] — grouped by remote-URL ingestion stage; failures without a stage, e.g. local files, are omitted, so this can be empty), `job_definition`, `order`, `dataset`, `machine` (the creation state machine backing `retry()`; `None` for order uploads).
+**Properties:** `failed_uploads` (list[Datapoint] — backward-compatible), `detailed_failures` (list[FailedUpload[Datapoint]]), `failures_by_reason` (dict[str, list[Datapoint]]), `failures_by_stage` (dict[str, list[Datapoint]] — grouped by remote-URL ingestion stage; failures without a stage, e.g. local files, are omitted, so this can be empty), `job_definition`, `dataset`, `machine` (the creation state machine backing `retry()`).
 
-**`retry()`** raises `RuntimeError` when the exception did not come from job-definition creation (e.g. legacy order uploads) — for those, use `dataset.add_datapoints(exception.failed_uploads)` instead.
+**`retry()`** raises `RuntimeError` when the exception did not come from job-definition creation — for those, use `dataset.add_datapoints(exception.failed_uploads)` instead.
 
 The exception message annotates each item with `stage=…`, `http_status=…` and `trace_id=…`, appends a `Too many open files` hint (naming `ulimit -n`, `RAPIDATA_cacheShards`, `RAPIDATA_maxWorkers`) when a failure looks like file-descriptor exhaustion, and points at `exception.retry()` whenever a creation machine is attached.
 
@@ -608,7 +568,7 @@ The exception message annotates each item with `stage=…`, `http_status=…` an
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `item` | Datapoint \| SampleUpload | The item that failed. A `Datapoint` for job/order uploads; a `SampleUpload` (media/identifier pair) for benchmark participant uploads (`upload_media` / `retry_missing`) |
+| `item` | Datapoint \| SampleUpload | The item that failed. A `Datapoint` for job uploads; a `SampleUpload` (media/identifier pair) for benchmark participant uploads (`upload_media` / `retry_missing`) |
 | `error_message` / `error_type` | str | Failure reason and exception type |
 | `stage` | `str \| None` | Remote-URL ingestion stage: `"download"`, `"redirect"`, `"content_type"`, `"decode"`, `"timeout"`, `"size"`, `"validation"`, `"internal"`. `None` for local-file and datapoint-creation failures |
 | `http_status` | `int \| None` | Origin server's HTTP status, e.g. `403` |
@@ -1102,7 +1062,7 @@ from rapidata import rapidata_config, logger, CompressionConfig
 # Logging
 rapidata_config.logging.level = "INFO"       # DEBUG, INFO, WARNING, ERROR, CRITICAL
 rapidata_config.logging.log_file = "/path/to/log.txt"
-rapidata_config.logging.silent_mode = False  # also suppresses terminal QR codes printed on job/order creation
+rapidata_config.logging.silent_mode = False  # also suppresses the dashboard preview link printed on job creation
 rapidata_config.logging.enable_otlp = True   # OpenTelemetry tracing (auto-disabled for environments without an OTLP collector — only rapidata.ai and rabbitdata.ch have one)
 rapidata_config.logging.environment = "rapidata.ai"  # API environment; derives the OTLP collector host (otlp-sdk.<environment>). Set automatically by RapidataClient from its environment
 
@@ -1217,7 +1177,7 @@ shortened = client.context.shorten_contexts([
 ])
 ```
 
-### Automatic shortening at job/order creation
+### Automatic shortening at job creation
 
 Any context exceeding 400 characters is **always** shortened against the task instruction before upload — there is no way to disable this. A warning reports how many contexts were shortened, and per-context before/after lengths are logged at info level. If shortening returns an empty result the original context is kept and a warning is logged.
 
