@@ -749,6 +749,7 @@ leaderboard = benchmark.create_leaderboard(
     # included_tags=["outdoor"],         # Optional: only collect matchups for prompts carrying one of these tags
     # excluded_tags=["nsfw"],            # Optional: skip prompts carrying any of these tags (always wins)
     # vote_aggregation=VoteAggregation.MAJORITY_VOTE,  # VoteAggregation.MAJORITY_VOTE (default) or ALL_VOTES — how matchup votes are aggregated
+    # skip_initial_run=False,            # Optional: when True, skip the initial run that evaluates the models already in the benchmark against each other (start with no responses/standings; later models still compare against the whole field). Create-only — not readable back
     # benchmarkDescription="...",        # Optional: description for a newly created benchmark (max 2000 chars; ignored if benchmark already exists)
 )
 
