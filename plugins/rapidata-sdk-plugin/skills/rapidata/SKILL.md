@@ -9,7 +9,7 @@ Rapidata connects you with distributed human labelers worldwide for fast, high-q
 
 ## Before you start: check the skill is up to date
 
-This skill is pinned to **Rapidata SDK v3.21.1**. Run this check **once at the start of a Rapidata task** (not on every call) to confirm the user's runtime matches the skill:
+This skill is pinned to **Rapidata SDK v3.22.0**. Run this check **once at the start of a Rapidata task** (not on every call) to confirm the user's runtime matches the skill:
 
 ```bash
 python -c "import rapidata; print(rapidata.__version__)" 2>/dev/null \
@@ -23,7 +23,7 @@ Compare the output to the pinned version above:
      - Re-run the install command to pull the latest: `/install-plugin https://github.com/RapidataAI/skills`, **or**
      - Use the plugin manager: `/plugin` → `rapidata-sdk-plugin` → update.
   2. Tell the user clearly:
-     > ⚠️ The Rapidata skill is pinned to v3.21.1 but v{installed} is installed — the skill docs may be out of date. I've suggested updating the plugin; if the update isn't available yet, I'll proceed with the documented API and flag any surprises.
+     > ⚠️ The Rapidata skill is pinned to v3.22.0 but v{installed} is installed — the skill docs may be out of date. I've suggested updating the plugin; if the update isn't available yet, I'll proceed with the documented API and flag any surprises.
   3. Proceed using the documented API. If you hit an unexpected error (missing attribute, changed signature), stop and tell the user the skill is likely the cause — don't guess at the new API.
 
 - **Installed < pinned** — the user's runtime is older than this skill. Suggest `pip install -U rapidata` so the runtime matches.
@@ -93,7 +93,7 @@ The file is just one transport. To move the token over any transport (key-value 
 - `client.mri` — model ranking insights / benchmarks
 - `client.signals` — run a labeling job on a repeating schedule
 - `client.context` — shorten over-long datapoint contexts against a specific question
-- `client.billing` — read the current billing period's cost and remaining credit (organization-level)
+- `client.billing` — read the current billing period's cost and remaining credit, and the outstanding balance owed (organization-level)
 
 ## New API: Job Definitions + Audiences (Recommended)
 
@@ -721,6 +721,35 @@ matrix_bm = benchmark.get_win_loss_matrix(                 # Pairwise wins/losse
     tags=None, participant_ids=None, leaderboard_ids=None, use_weighted_scoring=None,
 )
 
+# Filter any of the read methods above by voter demographics. All four benchmark reads
+# (get_overall_standings, get_win_loss_matrix, get_demographics, get_standings_breakdown)
+# and both leaderboard reads (get_standings, get_win_loss_matrix) accept the same optional
+# keyword filters, restricting results to votes from matching voters:
+from rapidata import Gender, AgeGroup
+
+overall_men = benchmark.get_overall_standings(
+    country=["US", "GB"],       # ISO-2 codes (observed)
+    language=["en"],            # (observed)
+    gender=[Gender.FEMALE],     # list[Gender] (estimated/inferred)
+    age_bucket=[AgeGroup.BETWEEN_18_29],  # list[AgeGroup] (estimated/inferred)
+    occupation=["Engineer"],    # plain strings (estimated/inferred)
+    run_id="run_...",           # restrict to a single evaluation run
+)
+
+# Demographic composition of the benchmark's voters: one row per (dimension, bucket),
+# columns dimension / value / votes / share (shares within a dimension sum to 1; each
+# dimension includes an "unknown" bucket). dimension holds BenchmarkDemographicDimension values.
+demographics = benchmark.get_demographics(tags=None, leaderboard_ids=None)
+
+# Standings split by a demographic dimension of the voters (dimension is required, first arg):
+# one row per (segment, model), columns segment / segment_votes / name / wins /
+# total_matches / score. Segments include an "unknown" bucket.
+from rapidata import BenchmarkDemographicDimension
+
+breakdown = benchmark.get_standings_breakdown(
+    dimension=BenchmarkDemographicDimension.COUNTRY,   # AgeBucket | Gender | Occupation | Country | Language
+)
+
 # Access the jobs that ran for a leaderboard (one per run, most recent first)
 for job in leaderboard.jobs:
     job_results = job.get_results()
@@ -831,6 +860,13 @@ period = client.billing.get_current_billing_period()   # -> BillingPeriod
 | `response_count` | Number of billable responses collected in the period (`int`). |
 | `credits` | Prepaid credit still available, or `None` when the organization is billed for usage rather than from a prepaid balance. An organization-level balance that carries across periods. |
 | `effective_limit` | The most the organization may spend this period, or `None` when it spends without a cap. On a prepaid plan this is the total credit granted, and `credits` is what remains of it. |
+
+```python
+# Total the organization currently owes, in US dollars rounded to the cent (0.0 when nothing is owed).
+# Covers finalized-but-unpaid invoices plus the settled cost of ended periods not yet invoiced;
+# excludes the current, still-accruing period. Already net of vouchers and discounts.
+owed = client.billing.get_outstanding_balance()   # -> float
+```
 
 ## Additional Resources
 

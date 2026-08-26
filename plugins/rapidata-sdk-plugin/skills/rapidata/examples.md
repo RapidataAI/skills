@@ -625,6 +625,47 @@ overall = benchmark.get_overall_standings()
 matrix = benchmark.get_win_loss_matrix()
 ```
 
+## Model Benchmark — Voter Demographics
+
+Standings, win/loss matrices, and both demographic read methods accept the same
+optional voter-demographic filters. `country` (ISO-2 codes), `language`, and
+`occupation` take plain strings; `gender` takes the `Gender` enum and `age_bucket`
+the `AgeGroup` enum. `run_id` restricts to a single evaluation run. `gender` /
+`age_bucket` / `occupation` are estimated (inferred); `country` / `language` are
+observed.
+
+```python
+from rapidata import RapidataClient, Gender, AgeGroup, BenchmarkDemographicDimension
+
+client = RapidataClient()
+benchmark = client.mri.get_benchmark_by_id("benchmark_id")
+
+# Restrict any read to a demographic slice of the voters.
+standings = benchmark.get_overall_standings(
+    country=["US", "CA"],
+    language=["en"],
+    gender=[Gender.FEMALE],
+    age_bucket=[AgeGroup.BETWEEN_18_29],
+)
+matrix = benchmark.get_win_loss_matrix(country=["US"])
+
+# The same filters work on a single leaderboard's reads.
+# lb.get_standings(country=["US"], occupation=["student"])
+# lb.get_win_loss_matrix(gender=[Gender.MALE])
+
+# Who voted: one row per (dimension, value) with vote counts and shares that sum
+# to 1 within each dimension. Every dimension has an "unknown" bucket for votes
+# whose attribute could not be determined.
+demographics = benchmark.get_demographics()
+print(demographics)  # columns: dimension, value, votes, share
+
+# Standings split by one demographic dimension of the voters.
+breakdown = benchmark.get_standings_breakdown(
+    dimension=BenchmarkDemographicDimension.COUNTRY,
+)
+print(breakdown)  # columns: segment, segment_votes, name, wins, total_matches, score
+```
+
 ## Model Benchmark — Staged Submission
 
 ```python
@@ -841,6 +882,13 @@ print(
 # effective_limit is the most the org may spend this period, or None when uncapped.
 if period.credits is not None:
     print(f"${period.credits} credit remaining of ${period.effective_limit} granted")
+
+# The outstanding balance is what the organization currently owes: finalized-but-unpaid
+# invoices plus the settled cost of ended periods not yet invoiced. It excludes the
+# current, still-accruing period, is already net of vouchers and discounts, and is
+# returned in US dollars rounded to the cent (0.0 when nothing is owed).
+owed = client.billing.get_outstanding_balance()
+print(f"Outstanding balance: ${owed}")
 ```
 
 ## Context Shortening
