@@ -692,7 +692,9 @@ benchmark.add_model(
 for p in benchmark.participants:
     print(p.name, p.status)
 
-# Submit all at once
+# Submit all CREATED participants in a single batch request. They are evaluated
+# symmetrically as one run — each model is compared against every other and against
+# the benchmark's already-submitted field, rather than as separate per-participant runs.
 benchmark.run()
 ```
 

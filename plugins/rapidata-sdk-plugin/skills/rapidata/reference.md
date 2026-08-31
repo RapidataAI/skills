@@ -772,7 +772,10 @@ missing = participant.missing_counts(
 
 # Submit individually or all at once
 participant.run()       # Submit one participant
-benchmark.run()         # Submit all unsubmitted (CREATED) participants
+benchmark.run()         # Submit all unsubmitted (CREATED) participants in a single batch request
+                        # (chunked at 100 ids). Batching evaluates them symmetrically as one run —
+                        # each model compared against every other and against the already-submitted
+                        # field — rather than as separate per-participant runs.
 
 # Faucet — configure a participant to auto-generate samples via Replicate
 participant.set_faucet(
@@ -1155,8 +1158,8 @@ rapidata_config.upload.batchPollInterval = 0.5
 rapidata_config.upload.compression = CompressionConfig(
     enabled=True,
     quality=70,        # WebP quality 1–100
-    max_dimension=1024, # Max width or height in pixels
-)  # Optional: per-upload image compression override (None = server default)
+    max_dimension=1024, # Max width or height in pixels (images only)
+)  # Optional: per-upload compression override for images and videos (None = server default)
 rapidata_config.upload.contextShortening = False   # When True, shorten EVERY context (over-long ones are always shortened)
 rapidata_config.upload.failureTolerance = 0.0      # Fraction of a job's datapoints allowed to fail (0.0–1.0, 0.0 = strict)
 rapidata_config.upload.checkForExplicitContent = None  # None = account default, True = force on, False = request skip
@@ -1170,11 +1173,11 @@ client.reset_credentials()
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `enabled` | `bool \| None` | Force compression on or off |
-| `quality` | `int \| None` | WebP quality (1–100) |
-| `max_dimension` | `int \| None` | Max width or height in pixels (≥ 1) |
+| `enabled` | `bool \| None` | Force compression on or off for **both images and videos**. `False` preserves the original image *and* video (resolution and bitrate) |
+| `quality` | `int \| None` | WebP quality (1–100) when image compression runs. **Images only** |
+| `max_dimension` | `int \| None` | Max width or height in pixels (≥ 1) when image compression runs. **Images only** (videos have no equivalent knob) |
 
-Applies to single-asset uploads (`/asset/file` and `/asset/url`) and batched URL uploads.
+Governs compression of images **and** videos. Applies to single-asset uploads (`/asset/file` and `/asset/url`) and batched URL uploads (`/asset/batch-upload`).
 
 `failureTolerance` is validated to `0.0..1.0` (`ValueError` otherwise) and is overridden per call by `failure_tolerance` on `create_*_job_definition`.
 
