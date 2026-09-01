@@ -772,7 +772,7 @@ missing = participant.missing_counts(
 
 # Submit individually or all at once
 participant.run()       # Submit one participant
-benchmark.run()         # Submit all unsubmitted (CREATED) participants in a single batch request
+benchmark.run()         # Submit all unsubmitted (CREATED or SUBMITTABLE) participants in a single batch request
                         # (chunked at 100 ids). Batching evaluates them symmetrically as one run —
                         # each model compared against every other and against the already-submitted
                         # field — rather than as separate per-participant runs.

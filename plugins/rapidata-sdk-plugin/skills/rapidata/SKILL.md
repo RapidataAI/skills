@@ -9,7 +9,7 @@ Rapidata connects you with distributed human labelers worldwide for fast, high-q
 
 ## Before you start: check the skill is up to date
 
-This skill is pinned to **Rapidata SDK v3.22.1**. Run this check **once at the start of a Rapidata task** (not on every call) to confirm the user's runtime matches the skill:
+This skill is pinned to **Rapidata SDK v3.22.2**. Run this check **once at the start of a Rapidata task** (not on every call) to confirm the user's runtime matches the skill:
 
 ```bash
 python -c "import rapidata; print(rapidata.__version__)" 2>/dev/null \
@@ -23,7 +23,7 @@ Compare the output to the pinned version above:
      - Re-run the install command to pull the latest: `/install-plugin https://github.com/RapidataAI/skills`, **or**
      - Use the plugin manager: `/plugin` → `rapidata-sdk-plugin` → update.
   2. Tell the user clearly:
-     > ⚠️ The Rapidata skill is pinned to v3.22.1 but v{installed} is installed — the skill docs may be out of date. I've suggested updating the plugin; if the update isn't available yet, I'll proceed with the documented API and flag any surprises.
+     > ⚠️ The Rapidata skill is pinned to v3.22.2 but v{installed} is installed — the skill docs may be out of date. I've suggested updating the plugin; if the update isn't available yet, I'll proceed with the documented API and flag any surprises.
   3. Proceed using the documented API. If you hit an unexpected error (missing attribute, changed signature), stop and tell the user the skill is likely the cause — don't guess at the new API.
 
 - **Installed < pinned** — the user's runtime is older than this skill. Suggest `pip install -U rapidata` so the runtime matches.
@@ -677,11 +677,12 @@ uploaded, still_failed = participant.retry_missing(  # re-sends assets for short
 
 # Submit individually or all at once
 participant.run()       # Submit one participant
-benchmark.run()         # Submit all unsubmitted (CREATED) participants in a single batch
-                        # request. This evaluates them symmetrically as one run — each
-                        # model is compared against every other and against the benchmark's
-                        # already-submitted field — rather than as separate per-participant
-                        # runs. Chunked to <=100 participants per request.
+benchmark.run()         # Submit all unsubmitted participants (status CREATED or
+                        # SUBMITTABLE) in a single batch request. This evaluates them
+                        # symmetrically as one run — each model is compared against every
+                        # other and against the benchmark's already-submitted field —
+                        # rather than as separate per-participant runs. Chunked to <=100
+                        # participants per request.
 
 # Faucet — configure a participant to auto-generate samples via Replicate
 participant.set_faucet(
