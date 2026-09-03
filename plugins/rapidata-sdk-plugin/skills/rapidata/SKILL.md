@@ -9,7 +9,7 @@ Rapidata connects you with distributed human labelers worldwide for fast, high-q
 
 ## Before you start: check the skill is up to date
 
-This skill is pinned to **Rapidata SDK v3.22.2**. Run this check **once at the start of a Rapidata task** (not on every call) to confirm the user's runtime matches the skill:
+This skill is pinned to **Rapidata SDK v3.22.3**. Run this check **once at the start of a Rapidata task** (not on every call) to confirm the user's runtime matches the skill:
 
 ```bash
 python -c "import rapidata; print(rapidata.__version__)" 2>/dev/null \
@@ -23,7 +23,7 @@ Compare the output to the pinned version above:
      - Re-run the install command to pull the latest: `/install-plugin https://github.com/RapidataAI/skills`, **or**
      - Use the plugin manager: `/plugin` → `rapidata-sdk-plugin` → update.
   2. Tell the user clearly:
-     > ⚠️ The Rapidata skill is pinned to v3.22.2 but v{installed} is installed — the skill docs may be out of date. I've suggested updating the plugin; if the update isn't available yet, I'll proceed with the documented API and flag any surprises.
+     > ⚠️ The Rapidata skill is pinned to v3.22.3 but v{installed} is installed — the skill docs may be out of date. I've suggested updating the plugin; if the update isn't available yet, I'll proceed with the documented API and flag any surprises.
   3. Proceed using the documented API. If you hit an unexpected error (missing attribute, changed signature), stop and tell the user the skill is likely the cause — don't guess at the new API.
 
 - **Installed < pinned** — the user's runtime is older than this skill. Suggest `pip install -U rapidata` so the runtime matches.
@@ -683,6 +683,11 @@ benchmark.run()         # Submit all unsubmitted participants (status CREATED or
                         # other and against the benchmark's already-submitted field —
                         # rather than as separate per-participant runs. Chunked to <=100
                         # participants per request.
+# Both run() methods are advisory about under-filled prompts: if the benchmark has a
+# minimum-samples-per-prompt gate set (see below) and a submitted participant filled a
+# prompt with fewer than the required samples, they log a warning listing each shortfall
+# as 'identifier' (asset_count/required), e.g. model-0: 'cat' (2/4). Submission still
+# completes and participants are marked SUBMITTED regardless of the warning.
 
 # Faucet — configure a participant to auto-generate samples via Replicate
 participant.set_faucet(
@@ -785,6 +790,16 @@ leaderboard.view()
 # Find existing benchmarks
 benchmarks = client.mri.find_benchmarks(name="AI Art", amount=10)
 benchmark = client.mri.get_benchmark_by_id("benchmark_id")
+
+# Patch the benchmark's configuration — only the arguments you pass are changed;
+# omitted ones keep their stored value.
+benchmark.update(
+    min_assets_per_prompt=4,   # Minimum samples (assets) each participant should fill per
+                               # prompt. int >= 2 (bool rejected; a smaller value or non-int
+                               # raises ValueError). This is an advisory gate: participant.run()
+                               # and benchmark.run() warn (but do not reject) when a submitted
+                               # participant filled a prompt below this count.
+)
 ```
 
 ## Signals (Scheduled Labeling)

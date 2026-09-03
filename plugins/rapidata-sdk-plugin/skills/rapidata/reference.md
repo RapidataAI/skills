@@ -771,11 +771,20 @@ missing = participant.missing_counts(
 )  # Counter[str]
 
 # Submit individually or all at once
-participant.run()       # Submit one participant
+participant.run()       # Submit one participant (via the batch endpoint as a batch of one).
+                        # Submission always completes; if the benchmark has a minimum-samples-per-prompt
+                        # gate, any prompt filled below it is logged via logger.warning (advisory, not a rejection).
 benchmark.run()         # Submit all unsubmitted (CREATED or SUBMITTABLE) participants in a single batch request
                         # (chunked at 100 ids). Batching evaluates them symmetrically as one run —
                         # each model compared against every other and against the already-submitted
                         # field — rather than as separate per-participant runs.
+                        # Emits a single aggregated logger.warning listing any participant that filled a
+                        # prompt below the benchmark's minimum-samples-per-prompt gate (advisory; submission still completes).
+
+# Update benchmark configuration (only passed args change; omitted ones keep their stored value)
+benchmark.update(
+    min_assets_per_prompt=4,      # int >= 2 (bool rejected); ValueError otherwise
+)
 
 # Faucet — configure a participant to auto-generate samples via Replicate
 participant.set_faucet(
@@ -860,6 +869,19 @@ leaderboard.view()
 benchmarks = client.mri.find_benchmarks(name="AI Art", amount=10)
 benchmark = client.mri.get_benchmark_by_id("benchmark_id")
 ```
+
+### Minimum samples per prompt (`benchmark.update`)
+
+A benchmark can require a minimum number of samples (assets) per prompt. Set it with `benchmark.update(min_assets_per_prompt=...)`:
+
+```python
+def update(self, min_assets_per_prompt: int | None = None) -> None: ...
+```
+
+- Only the arguments you pass are changed; anything omitted keeps its stored value.
+- `min_assets_per_prompt`, when provided, must be an `int` and **≥ 2** (`bool` is explicitly rejected), else `ValueError`.
+
+The gate is **advisory**, not a rejection. When a participant is submitted (`participant.run()` or `benchmark.run()`) with any prompt filled below the required count, the submission still completes and the participant is still marked `SUBMITTED`, but a `logger.warning` reports the shortfall. Each shortfall prompt is formatted as `'identifier' (asset_count/required)` — e.g. `model-0: 'cat' (2/4)`. `benchmark.run()` emits one aggregated warning listing every affected participant (by display name) and its shortfall prompts.
 
 ### `SampleUpload`
 

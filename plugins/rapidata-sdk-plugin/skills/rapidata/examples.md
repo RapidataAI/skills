@@ -692,10 +692,20 @@ benchmark.add_model(
 for p in benchmark.participants:
     print(p.name, p.status)
 
+# Optional advisory gate: require every prompt to be filled with at least N samples.
+# Only the arguments you pass change; omitted ones keep their stored value.
+# min_assets_per_prompt must be an int >= 2 (bool is rejected).
+benchmark.update(min_assets_per_prompt=4)
+
 # Submit all CREATED and SUBMITTABLE participants in a single batch request. They
 # are evaluated symmetrically as one run — each model is compared against every other
 # and against the benchmark's already-submitted field, rather than as separate
 # per-participant runs.
+#
+# The gate is advisory, not a rejection: submission always completes and participants
+# are marked SUBMITTED. If any submitted participant filled a prompt below the required
+# samples-per-prompt, run() emits a single aggregated logger.warning listing each
+# participant and its shortfall prompts, e.g. "DALL-E 3: 'mountain' (2/4)".
 benchmark.run()
 ```
 
