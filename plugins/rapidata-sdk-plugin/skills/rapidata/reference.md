@@ -822,6 +822,10 @@ print(benchmark.description)      # Optional plain-text credit (None if not set)
 print(benchmark.structured_tags)  # list[list[Tag]] — tags with categories, aligned by index
 print(benchmark.origins)          # list[Origin | None], aligned by index
 print(benchmark.tags)             # list[list[str]] — values-only view, kept for backwards compatibility
+print(benchmark.prompt_assets)    # list[str | list[str] | None], aligned by index — the reference asset(s)
+                                  # of each prompt. A prompt registered with several assets at once comes
+                                  # back as the list of its parts; single-asset prompts are a plain str,
+                                  # and text/null prompts are None
 
 # Get results
 standings = leaderboard.get_standings()                    # Pandas DataFrame for one leaderboard
