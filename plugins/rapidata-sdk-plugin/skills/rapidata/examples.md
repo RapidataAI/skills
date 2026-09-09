@@ -610,10 +610,15 @@ benchmark.evaluate_model(
     prompts=["A serene mountain landscape", "A futuristic city at night", "A wise wizard portrait"],
 )
 
+# Optionally attach the vendor's list price so the model is plotted on the
+# benchmark's "Score vs. cost" chart. USD per unit; pass price and price_unit
+# together (both or neither). Leave both out if you don't know the price.
 benchmark.evaluate_model(
     name="Midjourney v6",
     media=["mj_mountain.png", "mj_city.png", "mj_wizard.png"],
     prompts=["A serene mountain landscape", "A futuristic city at night", "A wise wizard portrait"],
+    price=0.04,
+    price_unit="image",   # "image" | "video_second" | "million_tokens"
 )
 
 # Leaderboard-level results
@@ -688,9 +693,15 @@ benchmark.add_model(
     prompts=["A serene mountain landscape", "A futuristic city at night", "A wise wizard portrait"],
 )
 
+# Price a model after the fact (USD per unit) — or clear it again.
+dalle = next(p for p in benchmark.participants if p.name == "DALL-E 3")
+dalle.set_price(0.04, unit="image")
+print(dalle.price, dalle.price_unit)  # 0.04 image
+# dalle.clear_price()                 # -> None None; model leaves the cost chart
+
 # Inspect participants before submitting
 for p in benchmark.participants:
-    print(p.name, p.status)
+    print(p.name, p.status, p.price, p.price_unit)
 
 # Optional advisory gate: require every prompt to be filled with at least N samples.
 # Only the arguments you pass change; omitted ones keep their stored value.

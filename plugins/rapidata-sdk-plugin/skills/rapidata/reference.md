@@ -728,6 +728,7 @@ benchmark.evaluate_model(
     media=["mountain.png", "city.png"],
     prompts=["A serene mountain landscape", "A futuristic city"],
     data_type="media",   # "media" (default) or "text"
+    # price=0.04, price_unit="image",   # Optional: list price in USD per unit — both or neither (see "Participant pricing")
 )
 
 # Or add a model without submitting (for more control). If any sample fails to
@@ -740,6 +741,8 @@ participant = benchmark.add_model(
     media=["mountain_v3.png", "city_v3.png"],
     prompts=["A serene mountain landscape", "A futuristic city"],
     data_type="media",
+    # price=0.04,            # Optional: list price in USD per price_unit — both or neither
+    # price_unit="image",    # "image" | "video_second" | "million_tokens"
 )
 
 # Upload additional media to the same participant. Returns
@@ -794,6 +797,11 @@ participant.set_faucet(
     additional_inputs={"aspect_ratio": "16:9"},  # Optional: extra model inputs (not prompt/num_outputs)
 )
 participant.delete_faucet()      # Remove the faucet from the participant
+participant.set_price(0.04, unit="image")  # List price in USD per unit ("image" | "video_second" | "million_tokens");
+                                           #   both required. ValueError on price <= 0 or an unknown unit
+participant.clear_price()         # Remove the price
+participant.price                 # float | None — USD per price_unit
+participant.price_unit            # str | None — "image" | "video_second" | "million_tokens"
 participant.disable()             # Exclude from evaluation and standings (reversible)
 participant.enable()              # Re-enable a previously disabled participant
 participant.rename("New Name")    # Rename the participant
@@ -886,6 +894,23 @@ def update(self, min_assets_per_prompt: int | None = None) -> None: ...
 - `min_assets_per_prompt`, when provided, must be an `int` and **≥ 2** (`bool` is explicitly rejected), else `ValueError`.
 
 The gate is **advisory**, not a rejection. When a participant is submitted (`participant.run()` or `benchmark.run()`) with any prompt filled below the required count, the submission still completes and the participant is still marked `SUBMITTED`, but a `logger.warning` reports the shortfall. Each shortfall prompt is formatted as `'identifier' (asset_count/required)` — e.g. `model-0: 'cat' (2/4)`. `benchmark.run()` emits one aggregated warning listing every affected participant (by display name) and its shortfall prompts.
+
+### Participant pricing (`set_price` / `clear_price`)
+
+A benchmark participant can carry the model's list price so it appears on the benchmark's **"Score vs. cost"** chart.
+
+```python
+def set_price(self, price: float, unit: Literal["image", "video_second", "million_tokens"]) -> None: ...
+def clear_price(self) -> None: ...
+
+participant.price       # float | None — USD per price_unit
+participant.price_unit  # str | None   — "image" | "video_second" | "million_tokens"
+```
+
+- `price` is in **USD per unit** and must be positive; `unit` must be one of the three literals. Both are required — a non-positive price or an unknown unit raises `ValueError`.
+- `benchmark.add_model(..., price=None, price_unit=None)` and `benchmark.evaluate_model(..., price=None, price_unit=None)` accept the same optional pair so a model is priced from creation. Pass **both or neither**.
+- `clear_price()` removes the price; `price` and `price_unit` read back `None` afterwards.
+- Unpriced participants are **hidden** from the cost chart, and only participants quoted in the benchmark's **majority unit** are plotted. Set the price only when the vendor publishes a list price you are confident in; otherwise leave it unset and say so.
 
 ### `SampleUpload`
 
