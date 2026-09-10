@@ -610,16 +610,17 @@ benchmark.evaluate_model(
     prompts=["A serene mountain landscape", "A futuristic city at night", "A wise wizard portrait"],
 )
 
-# Optionally attach the vendor's list price so the model is plotted on the
-# benchmark's "Score vs. cost" chart. USD per unit; pass price and price_unit
-# together (both or neither). Leave both out if you don't know the price.
 benchmark.evaluate_model(
     name="Midjourney v6",
     media=["mj_mountain.png", "mj_city.png", "mj_wizard.png"],
     prompts=["A serene mountain landscape", "A futuristic city at night", "A wise wizard portrait"],
-    price=0.04,
-    price_unit="image",   # "image" | "video_second" | "million_tokens"
 )
+
+# Pricing is separate participant metadata: add the model first, then attach the
+# vendor's list price (USD per unit) so it is plotted on the benchmark's
+# "Score vs. cost" chart. Skip this if you don't know the price.
+midjourney = next(p for p in benchmark.participants if p.name == "Midjourney v6")
+midjourney.set_price(0.04, unit="image")   # "image" | "video_second" | "million_tokens"
 
 # Leaderboard-level results
 standings = leaderboard.get_standings()
@@ -693,7 +694,8 @@ benchmark.add_model(
     prompts=["A serene mountain landscape", "A futuristic city at night", "A wise wizard portrait"],
 )
 
-# Price a model after the fact (USD per unit) — or clear it again.
+# Update participant metadata after adding: rename, or set / clear the list price
+# (USD per unit). Pricing is never part of add_model / evaluate_model.
 dalle = next(p for p in benchmark.participants if p.name == "DALL-E 3")
 dalle.set_price(0.04, unit="image")
 print(dalle.price, dalle.price_unit)  # 0.04 image
