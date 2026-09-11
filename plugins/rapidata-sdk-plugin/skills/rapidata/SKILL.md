@@ -699,9 +699,22 @@ participant.set_faucet(
 participant.delete_faucet()      # Remove the faucet from the participant
 participant.disable()             # Exclude from evaluation and standings (reversible)
 participant.enable()              # Re-enable a previously disabled participant
-participant.rename("New Name")    # Rename the participant
 participant.get_elo()             # Aggregated Elo across all leaderboards (None if not yet computed)
 participant.delete()              # Delete participant and its uploaded media (cannot be undone)
+
+# Update participant metadata — adding a model and pricing it are separate calls
+participant.rename("New Name")    # Rename the participant
+participant.set_price(0.04, unit="image")  # Set the model's list price in USD per unit ("image" |
+                                           #   "video_second" | "million_tokens"); both args required.
+                                           #   ValueError on a non-positive or non-finite price, or an unknown unit
+participant.clear_price()         # Remove the price (model drops off the cost chart)
+participant.price                 # float | None — USD per price_unit
+participant.price_unit            # str | None — "image" | "video_second" | "million_tokens"
+# Pricing models — a priced participant is plotted on the benchmark's "Score vs. cost" chart.
+# After adding a model, set its price if the vendor publishes a list price, and state the unit
+# (per image, per second of video, per million tokens). If you don't know the price with
+# confidence, leave it unset and tell the user instead of guessing. Unpriced models are hidden
+# from the cost chart, and only models quoted in the benchmark's majority unit are plotted.
 
 # Sample generation — trigger a batch generation run across participants with faucets
 sample_gen = benchmark.generate_samples(
