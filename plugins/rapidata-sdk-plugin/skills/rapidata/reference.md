@@ -818,9 +818,10 @@ sample_gen = benchmark.generate_samples(
 # sample_gen.total_count              — total items queued
 # sample_gen.skipped_participant_ids  — participants without a configured faucet
 
-# List participants and their status (p.faucet is None if no faucet is configured)
+# List participants and their status (p.faucet is None if no faucet is configured;
+# p.price / p.price_unit are populated for priced models and None for unpriced ones)
 for p in benchmark.participants:
-    print(p.name, p.status, p.faucet)
+    print(p.name, p.status, p.faucet, p.price, p.price_unit)
 
 # Prompts — original language and English translation (aligned by index)
 print(benchmark.prompts)          # As originally provided
