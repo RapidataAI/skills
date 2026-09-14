@@ -1195,7 +1195,7 @@ from rapidata import rapidata_config, logger, CompressionConfig
 rapidata_config.logging.level = "INFO"       # DEBUG, INFO, WARNING, ERROR, CRITICAL
 rapidata_config.logging.log_file = "/path/to/log.txt"
 rapidata_config.logging.silent_mode = False  # also suppresses the dashboard preview link printed on job creation
-rapidata_config.logging.enable_otlp = True   # OpenTelemetry tracing (auto-disabled for environments without an OTLP collector — only rapidata.ai and rabbitdata.ch have one)
+rapidata_config.logging.enable_otlp = True   # OpenTelemetry tracing (auto-disabled for environments without an OTLP collector — only rapidata.ai and rabbitdata.ch have one). Defaults to True, except under pytest (where it defaults to False); can also be disabled via RAPIDATA_DISABLE_OTLP=1, or forced on by passing it explicitly
 rapidata_config.logging.environment = "rapidata.ai"  # API environment; derives the OTLP collector host (otlp-sdk.<environment>). Set automatically by RapidataClient from its environment
 
 # Upload tuning
