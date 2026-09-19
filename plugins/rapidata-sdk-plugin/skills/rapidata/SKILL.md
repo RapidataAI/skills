@@ -9,7 +9,7 @@ Rapidata connects you with distributed human labelers worldwide for fast, high-q
 
 ## Before you start: check the skill is up to date
 
-This skill is pinned to **Rapidata SDK v3.23.1**. Run this check **once at the start of a Rapidata task** (not on every call) to confirm the user's runtime matches the skill:
+This skill is pinned to **Rapidata SDK v3.24.0**. Run this check **once at the start of a Rapidata task** (not on every call) to confirm the user's runtime matches the skill:
 
 ```bash
 python -c "import rapidata; print(rapidata.__version__)" 2>/dev/null \
@@ -23,7 +23,7 @@ Compare the output to the pinned version above:
      - Re-run the install command to pull the latest: `/install-plugin https://github.com/RapidataAI/skills`, **or**
      - Use the plugin manager: `/plugin` → `rapidata-sdk-plugin` → update.
   2. Tell the user clearly:
-     > ⚠️ The Rapidata skill is pinned to v3.23.1 but v{installed} is installed — the skill docs may be out of date. I've suggested updating the plugin; if the update isn't available yet, I'll proceed with the documented API and flag any surprises.
+     > ⚠️ The Rapidata skill is pinned to v3.24.0 but v{installed} is installed — the skill docs may be out of date. I've suggested updating the plugin; if the update isn't available yet, I'll proceed with the documented API and flag any surprises.
   3. Proceed using the documented API. If you hit an unexpected error (missing attribute, changed signature), stop and tell the user the skill is likely the cause — don't guess at the new API.
 
 - **Installed < pinned** — the user's runtime is older than this skill. Suggest `pip install -U rapidata` so the runtime matches.
@@ -83,13 +83,13 @@ The file is just one transport. To move the token over any transport (key-value 
   - **curated** — pre-trained on a domain (e.g. alignment via `aud_MU1GZYoESyO`).
   - **custom** — trained with your own task-specific qualification examples (`client.audience.create_audience(...)` + `add_*_example(...)` + `start_recruiting()`). ⚠️ Recruiting is **explicit**: a custom audience recruits nobody until you add **≥3 qualification examples** *and then* call `audience.start_recruiting()`. Adding examples does **not** start recruiting on its own; assign a job before recruiting has started and it can never receive responses — `assign_job` logs a warning, and the waiting methods (`get_results()`, `display_progress_bar()`) raise instead of blocking forever. Use `"global"` when you don't need task-specific qualification.
 - **Job**: A running instance of a job definition assigned to an audience
-- **Flow**: Lightweight continuous ranking without full job setup
+- **Flow**: Continuously collect human responses in small batches without full job setup. Two kinds — **ranking flows** (Elo-style comparison) and **classify flows** (sort each datapoint into one of a fixed set of categories)
 - **MRI/Benchmark**: Compare and rank AI models on leaderboards
 
 **Client entry points:**
 - `client.job` — create job definitions (classification, comparison, locate, draw, select words, free text, ranking)
 - `client.audience` — create and find audiences
-- `client.flow` — continuous ranking flows
+- `client.flow` — continuous ranking and classify flows
 - `client.mri` — model ranking insights / benchmarks
 - `client.signals` — run a labeling job on a repeating schedule
 - `client.context` — shorten over-long datapoint contexts against a specific question
@@ -525,9 +525,13 @@ settings=[CustomSetting(key="my_flag", value="on")]              # Rapid-level f
 10. **Context length limit is 400 characters** — the backend rejects contexts longer than 400 characters, so an over-long context is **always** shortened against the task instruction before upload (not optional; a warning reports how many were shortened). Set `rapidata_config.upload.contextShortening = True` to shorten *every* context, or use `client.context.shorten_context()` / `client.context.shorten_contexts()` to shorten manually.
 11. **Jobs can pause for manual review or funds** — `assign_job` always creates the job, but if its estimated cost exceeds your account balance it logs a cost warning and the job may pause until you top up. A job can also enter manual review (`ManualApproval`) or become spend-limited (`SpendLimited`) mid-run; since neither state completes on its own, `get_results()` raises an informative error naming the state instead of blocking — top up or wait for a reviewer, then retry.
 
-## Ranking Flows (Continuous Ranking)
+## Flows (Continuous Response Collection)
 
-Lightweight continuous ranking without full job/audience setup:
+Flows continuously collect human responses in small batches without full job/audience setup. There are two kinds: **ranking flows** (Elo-style comparison, below) and **classify flows** (sort each datapoint into a category, further below). Every `RapidataFlow` carries a `flow_type` (`"ranking"` or `"simple"` — classify flows are backed by "simple" flows), which is set correctly on flows returned by `create_*_flow`, `get_flow_by_id`, and `find_flows`.
+
+### Ranking Flows
+
+Lightweight continuous ranking:
 
 ```python
 # Create flow
@@ -546,18 +550,21 @@ client.flow.preheat()
 # Add items to rank
 flow_item = flow.create_new_flow_batch(
     datapoints=["img1.jpg", "img2.jpg", "img3.jpg"],
-    context="Generated by Model X",
-    # context_assets=["reference.jpg"],  # Optional: 1–10 image/video/audio paths/URLs shown alongside instruction
+    context="Generated by Model X",     # Ranking flows only — a single batch-level context
+    # context_assets=["reference.jpg"],  # Ranking flows only: 1–10 image/video/audio paths/URLs shown alongside instruction
     time_to_live=300,  # Seconds until expiry (45–3600; defaults to 3600 when omitted)
 )
+# context / context_assets are ranking-only; passing either on a classify flow raises ValueError.
+# Per-datapoint context is available on any flow via contexts=[...] (text) and
+# media_contexts=[...] (asset path/URL, or list of assets, per datapoint).
 
 # Get results (flow items have their own result shape, not RapidataResults)
-results = flow_item.get_results()         # Blocks until complete; returns FlowItemResult(datapoints, total_votes)
+results = flow_item.get_results()         # Blocks until complete; ranking items return FlowItemResult(datapoints, total_votes)
 status = flow_item.get_status()           # Non-blocking check
-matrix = flow_item.get_win_loss_matrix()  # Pandas DataFrame (blocks until complete)
+matrix = flow_item.get_win_loss_matrix()  # Pandas DataFrame (blocks until complete); ranking flow items only — raises ValueError otherwise
 count = flow_item.get_response_count()
 
-# Tune a flow after creation
+# Tune a flow after creation (ranking flows only — raises ValueError on a classify flow)
 flow.update_config(
     instruction="New instruction",
     starting_elo=1000,
@@ -573,6 +580,47 @@ flow.delete()
 ```
 
 Note: `RapidataFlowItem` does **not** have `display_progress_bar()` — poll with `get_status()` or just call `get_results()` to block.
+
+### Classify Flows
+
+Continuously sort each datapoint in a batch into one of the flow's categories:
+
+```python
+from datetime import timedelta
+
+# Create flow
+flow = client.flow.create_classify_flow(
+    name="Text Detection",
+    instruction="Does this image contain text?",   # question shown with every datapoint
+    categories=[("Yes, clearly readable", "yes"), ("No", "no")],  # 2–10 options; a plain
+    #   string is shown and returned as-is, a (label, value) tuple shows label but returns value
+    responses_per_datapoint=5,        # default 5
+    max_datapoints_per_item=24,       # default 24
+    time_to_live=timedelta(minutes=4),  # optional; between 45 seconds and 1 hour
+    # validation_set_id="...",        # Optional
+    # settings=[...],                 # Optional: flow-wide settings
+)
+
+# Add a batch of datapoints to classify
+flow_item = flow.create_new_flow_batch(
+    datapoints=["img1.jpg", "img2.jpg"],
+    contexts=["Optional text context per datapoint"],
+    # media_contexts=[["reference.jpg"]],  # Optional: asset(s) per datapoint
+    # time_to_live defaults to the flow's time to live when omitted
+)
+
+# Get results — classify flow items return ClassifyFlowItemResult
+result = flow_item.get_results()      # Blocks until complete
+result.total_responses                # int
+for key, dp in result.datapoints.items():   # key = source URL, else original filename
+    dp.majority_value      # category value chosen most often (None on a tie)
+    dp.distribution        # {category value: number of responses}
+    dp.response_count      # responses collected for this datapoint
+
+count = flow_item.get_response_count()  # total responses (blocks until complete)
+```
+
+New result classes (frozen dataclasses, importable from `rapidata`): `ClassifyFlowItemResult` (`datapoints`, `total_responses`) and `ClassifyDatapointResult` (`majority_value`, `distribution`, `response_count`), alongside the existing `FlowItemResult`.
 
 ## Model Ranking Insights (MRI / Benchmarks)
 

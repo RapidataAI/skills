@@ -524,6 +524,45 @@ batch2 = flow.create_new_flow_batch(
 flow.update_config(instruction="Which image looks better overall?", max_responses=250)
 ```
 
+## Continuous Classify Flow
+
+```python
+from datetime import timedelta
+from rapidata import RapidataClient, ClassifyFlowItemResult
+
+client = RapidataClient()
+
+flow = client.flow.create_classify_flow(
+    name="Text Detection",
+    instruction="Does this image contain text?",
+    # 2-10 answer options. A plain string is shown and returned as-is; a
+    # (label, value) tuple shows the label but returns the value in results.
+    categories=[("Yes, clearly readable", "yes"), ("No", "no")],
+    responses_per_datapoint=5,
+    max_datapoints_per_item=24,
+    time_to_live=timedelta(minutes=4),  # between 45s and 1h when supplied
+)
+
+# Preheat for low-latency responses (call ~5 minutes before time-sensitive batches)
+client.flow.preheat()
+
+# Submit batches over time. Classify flows attach context per datapoint via
+# contexts / media_contexts (NOT the ranking-only batch-level context=).
+batch = flow.create_new_flow_batch(
+    datapoints=["gen1.jpg", "gen2.jpg", "gen3.jpg"],
+    contexts=["Generated from prompt A", "Generated from prompt B", "Generated from prompt C"],
+)
+
+result: ClassifyFlowItemResult = batch.get_results()  # Blocks until complete
+print(result.total_responses)
+
+# datapoints maps each asset (keyed by source URL, else original filename) to its
+# classification outcome.
+for asset, outcome in result.datapoints.items():
+    # majority_value is the category value chosen most often, or None on a tie.
+    print(asset, outcome.majority_value, outcome.distribution, outcome.response_count)
+```
+
 ## Model Benchmark (MRI)
 
 ```python
