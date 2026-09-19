@@ -641,7 +641,7 @@ flow_item = flow.create_new_flow_batch(
     data_type="media",                # "media" (default) or "text"
     private_metadata=[...],           # Optional
     accept_failed_uploads=False,      # If True, proceed even if some uploads fail
-    time_to_live=300,                 # Seconds until expiry (45–3600; defaults to 3600 when omitted)
+    time_to_live=300,                 # Seconds until expiry (45–3600; defaults to 4 minutes for ranking flows)
 )
 # context / context_assets are ranking-only — passing either on a classify flow raises ValueError.
 # Use contexts / media_contexts to attach per-datapoint context on either flow type.
@@ -655,12 +655,13 @@ result = flow_item.get_results()      # Blocks until completed/failed/stopped/in
 # Items sorted from best to worst
 ranked = sorted(result.datapoints.items(), key=lambda item: item[1], reverse=True)
 
-status = flow_item.get_status()       # Non-blocking check
+status = flow_item.get_status()       # Non-blocking check; one of Pending, Running, Completed,
+                                      #   Failed, Stopping, Stopped, Incomplete
 matrix = flow_item.get_win_loss_matrix()  # Pandas DataFrame (blocks until completed). Ranking flow items only —
                                           #   raises ValueError on a classify flow item
 count = flow_item.get_response_count()    # responses collected (waits for completion)
 
-# Query flow items
+# Query flow items (returned newest first; defaults: 10 per page, page 1)
 items = flow.get_flow_items(amount=10, page=1)
 
 # Update a flow after creation — ranking flows only; raises ValueError on a classify flow
@@ -701,8 +702,9 @@ flow = client.flow.create_classify_flow(
                                                                   #   returned as-is, a (label, value) tuple
                                                                   #   shows label but returns value
     responses_per_datapoint=5,          # default 5, must be >= 1
-    max_datapoints_per_item=24,         # default 24, must be >= 1
-    time_to_live=timedelta(minutes=4),  # Optional: 45s–1h when supplied; items default to the flow's TTL
+    max_datapoints_per_item=24,         # default 24, must be >= 1 and at most 100
+    time_to_live=timedelta(minutes=4),  # Optional: timedelta or plain int seconds; 45s–1h when supplied
+                                        #   (a timedelta is converted via total_seconds()); batches default to the flow's TTL
     # validation_set_id="...",          # Optional: validation-set id
     # settings=[...],                   # Optional: flow-wide RapidataSettings
 )
@@ -724,9 +726,11 @@ for key, dp in result.datapoints.items():
     print(key, dp.majority_value, dp.distribution, dp.response_count)
 ```
 
-Validation performed before any API call: 2–10 categories, unique category values, `responses_per_datapoint >= 1`, `max_datapoints_per_item >= 1`, and `time_to_live` between 45 seconds and 1 hour when supplied.
+Validation performed before any API call: 2–10 categories, unique category values, `responses_per_datapoint >= 1`, `1 <= max_datapoints_per_item <= 100`, and `time_to_live` between 45 seconds and 1 hour when supplied (`time_to_live` accepts a `timedelta` or a plain `int` number of seconds).
 
-`get_win_loss_matrix()` and `update_config()` are ranking-only; calling either on a classify flow/item raises `ValueError`. `get_response_count()` works on both.
+`get_win_loss_matrix()` and `update_config()` are ranking-only; calling either on a classify flow/item raises `ValueError`. `get_response_count()` works on both — for classify flow items it returns `total_responses`.
+
+A classify batch is `Completed` if it collected at least one response by the time its time to live expires; only a batch that expires with zero responses becomes `Incomplete`. (For ranking flows, `Incomplete` instead occurs when `time_to_live` expires with fewer than `min_response_threshold` responses.)
 
 **Classify result classes** — both are frozen dataclasses importable from the top-level `rapidata` package (alongside `FlowItemResult`):
 
@@ -739,7 +743,7 @@ from rapidata import FlowItemResult, ClassifyFlowItemResult, ClassifyDatapointRe
 | Field | Type | Meaning |
 |-------|------|---------|
 | `majority_value` | `str \| None` | Category value chosen most often, or `None` on a tie |
-| `distribution` | `dict[str, int]` | Category value → number of responses that chose it |
+| `distribution` | `dict[str, int]` | Category value → number of responses that chose it; categories nobody chose are omitted |
 | `response_count` | int | Responses collected for this datapoint |
 
 `ClassifyFlowItemResult` — result of a classify flow item:

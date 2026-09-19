@@ -539,8 +539,8 @@ flow = client.flow.create_classify_flow(
     # (label, value) tuple shows the label but returns the value in results.
     categories=[("Yes, clearly readable", "yes"), ("No", "no")],
     responses_per_datapoint=5,
-    max_datapoints_per_item=24,
-    time_to_live=timedelta(minutes=4),  # between 45s and 1h when supplied
+    max_datapoints_per_item=24,  # defaults to 24, at most 100
+    time_to_live=timedelta(minutes=4),  # timedelta or plain int seconds; between 45s and 1h
 )
 
 # Preheat for low-latency responses (call ~5 minutes before time-sensitive batches)
@@ -560,6 +560,7 @@ print(result.total_responses)
 # classification outcome.
 for asset, outcome in result.datapoints.items():
     # majority_value is the category value chosen most often, or None on a tie.
+    # distribution maps category value -> response count; categories nobody chose are omitted.
     print(asset, outcome.majority_value, outcome.distribution, outcome.response_count)
 ```
 
