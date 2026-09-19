@@ -701,12 +701,18 @@ flow = client.flow.create_classify_flow(
     categories=[("Yes, clearly readable", "yes"), ("No", "no")],  # 2–10 options; a plain str is shown and
                                                                   #   returned as-is, a (label, value) tuple
                                                                   #   shows label but returns value
-    responses_per_datapoint=5,          # default 5, must be >= 1
-    max_datapoints_per_item=24,         # default 24, must be >= 1 and at most 100
+    max_responses_per_datapoint=15,     # default 15; accepted responses that close an image — collection for
+                                        #   that image stops once reached
+    min_responses_per_datapoint=10,     # default 10, must be >= 1; average responses per image an item needs
+                                        #   (once it ends by time_to_live) to be Completed rather than Incomplete.
+                                        #   max_responses_per_datapoint must be >= min_responses_per_datapoint
     time_to_live=timedelta(minutes=4),  # Optional: timedelta or plain int seconds; 45s–1h when supplied
-                                        #   (a timedelta is converted via total_seconds()); batches default to the flow's TTL
+                                        #   (a timedelta is converted via total_seconds()); defaults to 4 minutes
+                                        #   when omitted (not sent to the backend)
     # validation_set_id="...",          # Optional: validation-set id
     # settings=[...],                   # Optional: flow-wide RapidataSettings
+    # responses_per_datapoint=...,      # Deprecated keyword-only alias: emits DeprecationWarning and sets both
+    #                                   #   max_responses_per_datapoint and min_responses_per_datapoint to its value
 )
 
 # Add a batch — one flow item classifying each of its datapoints into a category
@@ -726,11 +732,11 @@ for key, dp in result.datapoints.items():
     print(key, dp.majority_value, dp.distribution, dp.response_count)
 ```
 
-Validation performed before any API call: 2–10 categories, unique category values, `responses_per_datapoint >= 1`, `1 <= max_datapoints_per_item <= 100`, and `time_to_live` between 45 seconds and 1 hour when supplied (`time_to_live` accepts a `timedelta` or a plain `int` number of seconds).
+Validation performed before any API call: 2–10 categories, unique category values, `min_responses_per_datapoint >= 1` (else `ValueError("Min responses per datapoint must be at least 1.")`), `max_responses_per_datapoint >= min_responses_per_datapoint` (else `ValueError("Max responses per datapoint must be at least min responses per datapoint.")`), and `time_to_live` between 45 seconds and 1 hour when supplied (`time_to_live` accepts a `timedelta` or a plain `int` number of seconds).
 
 `get_win_loss_matrix()` and `update_config()` are ranking-only; calling either on a classify flow/item raises `ValueError`. `get_response_count()` works on both — for classify flow items it returns `total_responses`.
 
-A classify batch is `Completed` if it collected at least one response by the time its time to live expires; only a batch that expires with zero responses becomes `Incomplete`. (For ranking flows, `Incomplete` instead occurs when `time_to_live` expires with fewer than `min_response_threshold` responses.)
+A classify batch becomes `Incomplete` when its `time_to_live` expires with total responses below `min_responses_per_datapoint × number of images` (an average per image); otherwise it is `Completed` — including when every image already reached `max_responses_per_datapoint`. (For ranking flows, `Incomplete` instead occurs when `time_to_live` expires with fewer than `min_response_threshold` responses.)
 
 **Classify result classes** — both are frozen dataclasses importable from the top-level `rapidata` package (alongside `FlowItemResult`):
 
@@ -743,7 +749,7 @@ from rapidata import FlowItemResult, ClassifyFlowItemResult, ClassifyDatapointRe
 | Field | Type | Meaning |
 |-------|------|---------|
 | `majority_value` | `str \| None` | Category value chosen most often, or `None` on a tie |
-| `distribution` | `dict[str, int]` | Category value → number of responses that chose it; categories nobody chose are omitted |
+| `distribution` | `dict[str, int]` | Category value → number of responses that chose it. Includes **every** category value defined in the flow, in the flow's category order, with `0` for categories nobody chose (e.g. `{"yes": 0, "no": 5}`); any unexpected backend values not in the blueprint are appended after the blueprint categories. Computing results makes an extra API call to fetch the flow blueprint's categories |
 | `response_count` | int | Responses collected for this datapoint |
 
 `ClassifyFlowItemResult` — result of a classify flow item:

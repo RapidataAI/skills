@@ -538,9 +538,9 @@ flow = client.flow.create_classify_flow(
     # 2-10 answer options. A plain string is shown and returned as-is; a
     # (label, value) tuple shows the label but returns the value in results.
     categories=[("Yes, clearly readable", "yes"), ("No", "no")],
-    responses_per_datapoint=5,
-    max_datapoints_per_item=24,  # defaults to 24, at most 100
-    time_to_live=timedelta(minutes=4),  # timedelta or plain int seconds; between 45s and 1h
+    max_responses_per_datapoint=15,  # accepted responses that close an image; collection stops once reached
+    min_responses_per_datapoint=10,  # avg responses/image needed (once TTL ends) to be Completed vs Incomplete; >= 1
+    time_to_live=timedelta(minutes=4),  # timedelta or plain int seconds; between 45s and 1h; defaults to 4 min when omitted
 )
 
 # Preheat for low-latency responses (call ~5 minutes before time-sensitive batches)
@@ -560,7 +560,8 @@ print(result.total_responses)
 # classification outcome.
 for asset, outcome in result.datapoints.items():
     # majority_value is the category value chosen most often, or None on a tie.
-    # distribution maps category value -> response count; categories nobody chose are omitted.
+    # distribution maps EVERY category value defined in the flow (in flow category order)
+    # to its response count, with 0 for categories nobody chose, e.g. {"yes": 0, "no": 5}.
     print(asset, outcome.majority_value, outcome.distribution, outcome.response_count)
 ```
 
