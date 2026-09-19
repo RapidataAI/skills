@@ -9,7 +9,7 @@ Rapidata connects you with distributed human labelers worldwide for fast, high-q
 
 ## Before you start: check the skill is up to date
 
-This skill is pinned to **Rapidata SDK v3.25.0**. Run this check **once at the start of a Rapidata task** (not on every call) to confirm the user's runtime matches the skill:
+This skill is pinned to **Rapidata SDK v3.25.1**. Run this check **once at the start of a Rapidata task** (not on every call) to confirm the user's runtime matches the skill:
 
 ```bash
 python -c "import rapidata; print(rapidata.__version__)" 2>/dev/null \
@@ -23,7 +23,7 @@ Compare the output to the pinned version above:
      - Re-run the install command to pull the latest: `/install-plugin https://github.com/RapidataAI/skills`, **or**
      - Use the plugin manager: `/plugin` → `rapidata-sdk-plugin` → update.
   2. Tell the user clearly:
-     > ⚠️ The Rapidata skill is pinned to v3.25.0 but v{installed} is installed — the skill docs may be out of date. I've suggested updating the plugin; if the update isn't available yet, I'll proceed with the documented API and flag any surprises.
+     > ⚠️ The Rapidata skill is pinned to v3.25.1 but v{installed} is installed — the skill docs may be out of date. I've suggested updating the plugin; if the update isn't available yet, I'll proceed with the documented API and flag any surprises.
   3. Proceed using the documented API. If you hit an unexpected error (missing attribute, changed signature), stop and tell the user the skill is likely the cause — don't guess at the new API.
 
 - **Installed < pinned** — the user's runtime is older than this skill. Suggest `pip install -U rapidata` so the runtime matches.
@@ -586,32 +586,28 @@ Note: `RapidataFlowItem` does **not** have `display_progress_bar()` — poll wit
 Continuously sort each datapoint in a batch into one of the flow's categories:
 
 ```python
-from datetime import timedelta
-
 # Create flow
 flow = client.flow.create_classify_flow(
     name="Text Detection",
     instruction="Does this image contain text?",   # question shown with every datapoint
-    categories=[("Yes, clearly readable", "yes"), ("No", "no")],  # 2–10 options; a plain
+    categories=[("Yes, clearly readable", "yes"), ("No", "no")],  # 2–8 options; a plain
     #   string is shown and returned as-is, a (label, value) tuple shows label but returns value
     max_responses_per_datapoint=15,   # default 15; accepted responses that close an image
     #   (collection for that image stops once reached)
     min_responses_per_datapoint=10,   # default 10, must be >= 1; average responses per image an
-    #   item needs (once it ends by time_to_live) to be Completed rather than Incomplete.
+    #   item needs (once it ends by its time to live) to be Completed rather than Incomplete.
     #   Requires max_responses_per_datapoint >= min_responses_per_datapoint.
-    time_to_live=timedelta(minutes=4),  # optional; a timedelta or an int number of seconds,
-    #   between 45 seconds and 1 hour. Defaults to 4 minutes when omitted.
     # validation_set_id="...",        # Optional
     # settings=[...],                 # Optional: flow-wide settings
-    # responses_per_datapoint=...,    # Deprecated: sets both max_ and min_responses_per_datapoint
 )
+# Time-to-live is set per batch only (create_new_flow_batch below), not on the flow.
 
 # Add a batch of datapoints to classify
 flow_item = flow.create_new_flow_batch(
     datapoints=["img1.jpg", "img2.jpg"],
     contexts=["Optional text context per datapoint"],
     # media_contexts=[["reference.jpg"]],  # Optional: asset(s) per datapoint
-    # time_to_live defaults to the flow's time to live when omitted
+    # time_to_live=300,  # Optional: seconds this batch may run (45–3600); set per batch
 )
 
 # Get results — classify flow items return ClassifyFlowItemResult

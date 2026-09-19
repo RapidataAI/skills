@@ -693,33 +693,28 @@ audience.delete()  # Deletes the audience
 Continuously sort each datapoint of every flow item into one of the flow's categories:
 
 ```python
-from datetime import timedelta
-
 flow = client.flow.create_classify_flow(
     name="Text Detection",
     instruction="Does this image contain text?",   # question shown with every datapoint
-    categories=[("Yes, clearly readable", "yes"), ("No", "no")],  # 2–10 options; a plain str is shown and
+    categories=[("Yes, clearly readable", "yes"), ("No", "no")],  # 2–8 options; a plain str is shown and
                                                                   #   returned as-is, a (label, value) tuple
                                                                   #   shows label but returns value
     max_responses_per_datapoint=15,     # default 15; accepted responses that close an image — collection for
                                         #   that image stops once reached
     min_responses_per_datapoint=10,     # default 10, must be >= 1; average responses per image an item needs
-                                        #   (once it ends by time_to_live) to be Completed rather than Incomplete.
+                                        #   (once it ends by its time to live) to be Completed rather than Incomplete.
                                         #   max_responses_per_datapoint must be >= min_responses_per_datapoint
-    time_to_live=timedelta(minutes=4),  # Optional: timedelta or plain int seconds; 45s–1h when supplied
-                                        #   (a timedelta is converted via total_seconds()); defaults to 4 minutes
-                                        #   when omitted (not sent to the backend)
     # validation_set_id="...",          # Optional: validation-set id
     # settings=[...],                   # Optional: flow-wide RapidataSettings
-    # responses_per_datapoint=...,      # Deprecated keyword-only alias: emits DeprecationWarning and sets both
-    #                                   #   max_responses_per_datapoint and min_responses_per_datapoint to its value
 )
+# Time-to-live is controlled per batch only — set it on each create_new_flow_batch call (below).
 
 # Add a batch — one flow item classifying each of its datapoints into a category
 flow_item = flow.create_new_flow_batch(
     datapoints=["img1.jpg", "img2.jpg"],
     contexts=["Optional per-datapoint text", "..."],          # Optional
     media_contexts=["ref1.jpg", ["ref2a.jpg", "ref2b.jpg"]],  # Optional per-datapoint asset(s)
+    time_to_live=300,                                         # Seconds until expiry (45–3600; defaults to 4 minutes)
 )
 
 # Get results — classify flow items return ClassifyFlowItemResult
@@ -732,7 +727,7 @@ for key, dp in result.datapoints.items():
     print(key, dp.majority_value, dp.distribution, dp.response_count)
 ```
 
-Validation performed before any API call: 2–10 categories, unique category values, `min_responses_per_datapoint >= 1` (else `ValueError("Min responses per datapoint must be at least 1.")`), `max_responses_per_datapoint >= min_responses_per_datapoint` (else `ValueError("Max responses per datapoint must be at least min responses per datapoint.")`), and `time_to_live` between 45 seconds and 1 hour when supplied (`time_to_live` accepts a `timedelta` or a plain `int` number of seconds).
+Validation performed before any API call: 2–8 categories (else `ValueError("Categories must contain between 2 and 8 entries.")`), unique category values, `min_responses_per_datapoint >= 1` (else `ValueError("Min responses per datapoint must be at least 1.")`), and `max_responses_per_datapoint >= min_responses_per_datapoint` (else `ValueError("Max responses per datapoint must be at least min responses per datapoint.")`). The flow itself no longer takes a `time_to_live`; time-to-live is set per batch on `create_new_flow_batch`.
 
 `get_win_loss_matrix()` and `update_config()` are ranking-only; calling either on a classify flow/item raises `ValueError`. `get_response_count()` works on both — for classify flow items it returns `total_responses`.
 

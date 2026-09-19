@@ -535,12 +535,12 @@ client = RapidataClient()
 flow = client.flow.create_classify_flow(
     name="Text Detection",
     instruction="Does this image contain text?",
-    # 2-10 answer options. A plain string is shown and returned as-is; a
+    # 2-8 answer options. A plain string is shown and returned as-is; a
     # (label, value) tuple shows the label but returns the value in results.
     categories=[("Yes, clearly readable", "yes"), ("No", "no")],
     max_responses_per_datapoint=15,  # accepted responses that close an image; collection stops once reached
     min_responses_per_datapoint=10,  # avg responses/image needed (once TTL ends) to be Completed vs Incomplete; >= 1
-    time_to_live=timedelta(minutes=4),  # timedelta or plain int seconds; between 45s and 1h; defaults to 4 min when omitted
+    # Time-to-live is set per batch only (see create_new_flow_batch below).
 )
 
 # Preheat for low-latency responses (call ~5 minutes before time-sensitive batches)
@@ -551,6 +551,7 @@ client.flow.preheat()
 batch = flow.create_new_flow_batch(
     datapoints=["gen1.jpg", "gen2.jpg", "gen3.jpg"],
     contexts=["Generated from prompt A", "Generated from prompt B", "Generated from prompt C"],
+    time_to_live=timedelta(minutes=4),  # per-batch only; timedelta or plain int seconds
 )
 
 result: ClassifyFlowItemResult = batch.get_results()  # Blocks until complete
