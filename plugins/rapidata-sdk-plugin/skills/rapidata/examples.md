@@ -547,7 +547,10 @@ flow = client.flow.create_classify_flow(
 client.flow.preheat()
 
 # Submit batches over time. Classify flows attach context per datapoint via
-# contexts / media_contexts (NOT the ranking-only batch-level context=).
+# contexts / context_assets (NOT the ranking-only batch-level context=).
+# contexts is one text string per datapoint; context_assets is one list of asset
+# paths/URLs per datapoint (list[list[str]] — a list even for a single asset).
+# Both must have exactly one entry per datapoint.
 batch = flow.create_new_flow_batch(
     datapoints=["gen1.jpg", "gen2.jpg", "gen3.jpg"],
     contexts=["Generated from prompt A", "Generated from prompt B", "Generated from prompt C"],
