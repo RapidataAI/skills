@@ -852,6 +852,47 @@ except FailedUploadException as e:
 job = audience.assign_job(job_def)
 ```
 
+## Queueing Jobs on One Audience
+
+By default `assign_job` starts a job right away. Pass `run_after` to queue a job
+that only starts once an earlier job **completes or fails** — this keeps a single
+audience from splitting its annotators across two jobs at the same time. The queued
+job is created immediately in the `Queued` state.
+
+```python
+from rapidata import RapidataClient
+
+client = RapidataClient()
+audience = client.audience.get_audience_by_id("aud_MU1GZYoESyO")
+
+first_def = client.job.create_classification_job_definition(
+    name="Batch 1",
+    instruction="What's in this image?",
+    answer_options=["Cat", "Dog", "Bird"],
+    datapoints=["img1.jpg", "img2.jpg"],
+)
+second_def = client.job.create_classification_job_definition(
+    name="Batch 2",
+    instruction="What's in this image?",
+    answer_options=["Cat", "Dog", "Bird"],
+    datapoints=["img3.jpg", "img4.jpg"],
+)
+
+first = audience.assign_job(first_def)
+# Starts only after `first` completes or fails.
+second = audience.assign_job(second_def, run_after=first)
+
+# You can also queue behind a job id (e.g. from an earlier session), and chain
+# further by pointing each new job at its predecessor.
+third_def = client.job.create_classification_job_definition(
+    name="Batch 3",
+    instruction="What's in this image?",
+    answer_options=["Cat", "Dog", "Bird"],
+    datapoints=["img5.jpg", "img6.jpg"],
+)
+third = audience.assign_job(third_def, run_after=second.id)
+```
+
 ## Updating a Job Definition's Dataset
 
 ```python

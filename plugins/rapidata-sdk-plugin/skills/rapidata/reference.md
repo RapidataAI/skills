@@ -205,6 +205,41 @@ Supplying only one of the three is fine — the SDK fills the others in from the
 
 Buckets are mutually exclusive — each annotator is counted exactly once.
 
+### Queueing jobs (`assign_job(..., run_after=...)`)
+
+`assign_job` takes an optional `run_after` parameter that queues a job to start only
+after an earlier job finishes, so a single audience never splits its annotators across
+two jobs at the same time.
+
+```python
+def assign_job(
+    self,
+    job_definition: RapidataJobDefinition,
+    run_after: RapidataJob | str | None = None,
+) -> RapidataJob:
+    ...
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `run_after` | `RapidataJob \| str \| None` | Job (or job id) the new job must wait for. `None` (default) starts the job right away — unchanged prior behavior |
+
+When `run_after` is set, the new job is created immediately in the `Queued` state and
+begins once the preceding job **completes or fails**. A `RapidataJob` contributes its
+`.id`; a string is used directly as the job id. The value is sent to the API as the
+`precedingJobId` field on the create-job request (`None` sends no preceding job).
+
+```python
+# Queue behind a returned job object
+first = audience.assign_job(job_def)
+second = audience.assign_job(other_job_def, run_after=first)
+
+# Queue behind a job id (e.g. from an earlier session)
+second = audience.assign_job(other_job_def, run_after="job_id")
+```
+
+Jobs can be chained further by pointing each new job at its predecessor.
+
 ### Warnings on `assign_job`
 
 The job is always created, but two advisory warnings may be logged afterwards:
