@@ -785,7 +785,8 @@ benchmark = client.mri.create_new_benchmark(
     name="AI Art Competition",
     prompts=["A serene mountain landscape", "A futuristic city"],
     # identifiers=[...],        # Optional: stable ids for each prompt
-    # prompt_assets=[...],      # Optional: reference media for each prompt
+    # prompt_assets=[["ref1.jpg"], ["ref2.jpg"]],  # Optional: one list of asset URLs/paths per prompt
+    #                                              #   (several entries in a list = one multi-asset), or None
     # tags=[...],               # Optional: per-prompt tag lists; entries may be str, Tag, or a mix
     # origins=[...],            # Optional: per-prompt Origin or plain source string
     # description=None,         # Optional: plain-text credit for the benchmark (max 2000 characters)
@@ -795,7 +796,7 @@ benchmark = client.mri.create_new_benchmark(
 benchmark.add_prompts(
     prompts=["A quiet lake at dawn"],
     # identifiers=["dawn_lake"],   # Optional: stable id per prompt
-    # prompt_assets=["ref.jpg"],   # Optional: reference media per prompt
+    # prompt_assets=[["ref.jpg"]],  # Optional: one list of asset URLs/paths per prompt (or None)
     # tags=[["landscape"]],        # Optional: list of tag lists, one per prompt (str and/or Tag)
     # origins=["coco"],            # Optional: Origin / source string / None, one per prompt
 )
@@ -929,10 +930,11 @@ print(benchmark.description)      # Optional plain-text credit (None if not set)
 print(benchmark.structured_tags)  # list[list[Tag]] — tags with categories, aligned by index
 print(benchmark.origins)          # list[Origin | None], aligned by index
 print(benchmark.tags)             # list[list[str]] — values-only view, kept for backwards compatibility
-print(benchmark.prompt_assets)    # list[str | list[str] | None], aligned by index — the reference asset(s)
-                                  # of each prompt. A prompt registered with several assets at once comes
-                                  # back as the list of its parts; single-asset prompts are a plain str,
-                                  # and text/null prompts are None
+print(benchmark.prompt_assets)    # list[list[str] | None], aligned by index — the reference asset(s)
+                                  # of each prompt. Each entry is the list of assets for that prompt
+                                  # (one element for a single asset, several for a multi-asset), or None
+                                  # for text/null prompts. This is the same shape add_prompts /
+                                  # create_new_benchmark take, so a value read back can be fed straight in
 
 # Get results
 standings = leaderboard.get_standings()                    # Pandas DataFrame for one leaderboard
@@ -1058,6 +1060,20 @@ benchmark = client.mri.create_new_benchmark(
 ```
 
 `identifiers`, `prompts`, `prompt_assets`, `tags` and `origins` must all have the same length or be `None`.
+
+### Prompt assets shape (`prompt_assets`)
+
+On `create_new_benchmark` and `add_prompts`, `prompt_assets` is a **list with one entry per prompt**, each entry being a `list[str]` of image / video / audio URLs or file paths shown alongside that prompt (or `None` for no asset). A single asset is a one-element list; several entries in one list are registered together as one multi-asset. This matches the `media_contexts` shape of job definitions, and the write shape equals the read shape — a value read from `benchmark.prompt_assets` can be fed straight back in.
+
+```python
+prompt_assets = [
+    ["https://assets.rapidata.ai/prompt_1.jpg"],                        # single asset
+    ["https://example.com/pan_left.gif", "https://example.com/street.jpg"],  # one multi-asset
+    None,                                                               # no asset (e.g. text prompt)
+]
+```
+
+Passing a bare `str` per prompt is still accepted but **deprecated** — it is wrapped in a single-element list and logs one warning per call. Passing anything that is not a list raises `ValueError` ("Prompt assets must be a list with one entry per prompt, each a list of strings or None."); an empty list or empty-string entry also raises `ValueError`.
 
 ### `benchmark.update_prompt(identifier, tags=None, origin=None)`
 

@@ -9,7 +9,7 @@ Rapidata connects you with distributed human labelers worldwide for fast, high-q
 
 ## Before you start: check the skill is up to date
 
-This skill is pinned to **Rapidata SDK v3.25.2**. Run this check **once at the start of a Rapidata task** (not on every call) to confirm the user's runtime matches the skill:
+This skill is pinned to **Rapidata SDK v3.25.3**. Run this check **once at the start of a Rapidata task** (not on every call) to confirm the user's runtime matches the skill:
 
 ```bash
 python -c "import rapidata; print(rapidata.__version__)" 2>/dev/null \
@@ -23,7 +23,7 @@ Compare the output to the pinned version above:
      - Re-run the install command to pull the latest: `/install-plugin https://github.com/RapidataAI/skills`, **or**
      - Use the plugin manager: `/plugin` → `rapidata-sdk-plugin` → update.
   2. Tell the user clearly:
-     > ⚠️ The Rapidata skill is pinned to v3.25.2 but v{installed} is installed — the skill docs may be out of date. I've suggested updating the plugin; if the update isn't available yet, I'll proceed with the documented API and flag any surprises.
+     > ⚠️ The Rapidata skill is pinned to v3.25.3 but v{installed} is installed — the skill docs may be out of date. I've suggested updating the plugin; if the update isn't available yet, I'll proceed with the documented API and flag any surprises.
   3. Proceed using the documented API. If you hit an unexpected error (missing attribute, changed signature), stop and tell the user the skill is likely the cause — don't guess at the new API.
 
 - **Installed < pinned** — the user's runtime is older than this skill. Suggest `pip install -U rapidata` so the runtime matches.
@@ -643,7 +643,9 @@ benchmark = client.mri.create_new_benchmark(
     name="AI Art Competition",
     prompts=["A serene mountain landscape", "A futuristic city"],
     # identifiers=[...],        # Optional: stable ids for each prompt
-    # prompt_assets=[...],      # Optional: reference media for each prompt
+    # prompt_assets=[["ref1.jpg"], ["ref2.jpg"]],  # Optional: one list of reference-media
+    #                           #   URLs/paths per prompt (list[list[str]]; several entries in a
+    #                           #   list register as one multi-asset, or None for no asset)
     # tags=[...],               # Optional: per-prompt tags — str, Tag(value, category=...), or a mix
     # origins=[...],            # Optional: per-prompt Origin(source) or plain source string
     # description=None,         # Optional: plain-text credit for the benchmark (max 2000 characters)
@@ -653,7 +655,9 @@ benchmark = client.mri.create_new_benchmark(
 benchmark.add_prompts(
     prompts=["A quiet lake at dawn"],
     # identifiers=["dawn_lake"],   # Optional: stable id per prompt
-    # prompt_assets=["ref.jpg"],   # Optional: reference media per prompt
+    # prompt_assets=[["ref.jpg"]], # Optional: one list of reference-media URLs/paths per prompt
+    #                              #   (list[list[str]]; passing a bare str per prompt still works
+    #                              #   but is deprecated). Same shape as benchmark.prompt_assets reads back.
     # tags=[["landscape"]],        # Optional: list of tag lists, one per prompt (str and/or Tag)
     # origins=["coco"],            # Optional: where each prompt came from (Origin or str)
 )
