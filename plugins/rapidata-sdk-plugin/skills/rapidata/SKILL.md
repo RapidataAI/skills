@@ -149,7 +149,7 @@ job_def = client.job.create_classification_job_definition(
     instruction="What animal is in this image?",
     answer_options=["Cat", "Dog", "Bird", "Other"],
     datapoints=["img1.jpg", "img2.jpg"],
-    data_type="media",              # "media" (default) or "text"
+    data_type="media",              # "media" (default) or "text" — text assets are NOT translated
     responses_per_datapoint=10,
     contexts=["Optional text context per datapoint"],
     media_contexts=[["optional_reference.jpg"]],
@@ -500,7 +500,7 @@ settings=[FreeTextMinimumCharactersSetting(50)]           # Min text length for 
 settings=[FreeTextMaxCharactersSetting(500)]              # Max text length for free-text tasks (default 1024) (use with caution — see note below)
 settings=[SwapContextInstructionSetting()]                # Swap the positions of context and instruction
 settings=[PlayPercentageVideoSetting(percentage=95)]      # Require labelers to watch N% of video before answering (0-95)
-settings=[OriginalLanguageOnlySetting()]                  # Do not translate the task
+settings=[OriginalLanguageOnlySetting()]                  # Do not translate the task (text assets are never translated anyway)
 settings=[NoMistakeOptionSetting()]                       # Hide the "mark as mistake" option
 settings=[DisableAutoloopSetting()]                       # Disable automatic looping of media
 settings=[NoInstructionDisplaySetting()]                  # Hide instruction on the task screen
@@ -529,6 +529,7 @@ settings=[CustomSetting(key="my_flag", value="on")]              # Rapid-level f
 9. **Preview link printed on job creation** — when a job definition is created, a dashboard preview link is printed automatically (QR-code previews were removed in v3.21.0); suppress it with `rapidata_config.logging.silent_mode = True`
 10. **Context length limit is 400 characters** — the backend rejects contexts longer than 400 characters, so an over-long context is **always** shortened against the task instruction before upload (not optional; a warning reports how many were shortened). Set `rapidata_config.upload.contextShortening = True` to shorten *every* context, or use `client.context.shorten_context()` / `client.context.shorten_contexts()` to shorten manually.
 11. **Jobs can pause for manual review or funds** — `assign_job` always creates the job, but if its estimated cost exceeds your account balance it logs a cost warning and the job may pause until you top up. A job can also enter manual review (`ManualApproval`) or become spend-limited (`SpendLimited`) mid-run; since neither state completes on its own, `get_results()` raises an informative error naming the state instead of blocking — top up or wait for a reviewer, then retry.
+12. **Text assets are NOT translated** — datapoints uploaded with `data_type="text"` are shown to labelers exactly as supplied, in their original language, whatever language the labeler views the task in. Only the surrounding task UI may be translated; `OriginalLanguageOnlySetting` does not change this. If labelers must read the text, target speakers of its language with `LanguageFilter` / `CountryFilter`, or supply the text already in the labelers' language.
 
 ## Flows (Continuous Response Collection)
 
