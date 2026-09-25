@@ -560,6 +560,8 @@ flow.delete()
 
 Note: `RapidataFlowItem` does **not** have `display_progress_bar()` — poll with `get_status()` or just call `get_results()` to block.
 
+Using flows as the preference signal for DPO/RLHF or best-of-N? Read [flows-for-preference-data.md](flows-for-preference-data.md) first: TTL, not the max threshold, usually sets a flow item's turnaround.
+
 ### Classify Flows
 
 Continuously sort each datapoint in a batch into one of the flow's categories:
@@ -921,3 +923,4 @@ owed = client.billing.get_outstanding_balance()   # -> float
 
 - For complete API reference, all parameters, filters, results format, error handling, flows, and MRI: see [reference.md](reference.md) (if this file was installed on its own via `python -m rapidata skill --install`, fetch https://raw.githubusercontent.com/RapidataAI/skills/main/plugins/rapidata-sdk-plugin/skills/rapidata/reference.md)
 - For full end-to-end code examples and common patterns: see [examples.md](examples.md) (standalone copy: https://raw.githubusercontent.com/RapidataAI/skills/main/plugins/rapidata-sdk-plugin/skills/rapidata/examples.md)
+- For using flows to collect DPO/RLHF preference pairs or run best-of-N, and designing comparisons that train well: see [flows-for-preference-data.md](flows-for-preference-data.md) (standalone copy: https://raw.githubusercontent.com/RapidataAI/skills/main/plugins/rapidata-sdk-plugin/skills/rapidata/flows-for-preference-data.md)
