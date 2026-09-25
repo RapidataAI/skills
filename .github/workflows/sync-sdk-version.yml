@@ -132,10 +132,8 @@ jobs:
       - name: Update skill docs with Claude
         id: claude-docs
         if: steps.should-update.outputs.skip != 'true'
-        # A failure here must not abort the job: the version bump still has to be
-        # committed, otherwise the next run diffs from the same stale version and
-        # the diff compounds until no run can ever succeed. The "Verify doc update"
-        # step below turns the job red after the commit lands.
+        # Non-fatal only so the next step can explain the failure; that step still fails
+        # the job before anything (docs or version markers) is committed.
         continue-on-error: true
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -146,7 +144,7 @@ jobs:
 
           run_claude() {
             claude -p \
-              --model claude-opus-4-8 \
+              --model claude-opus-5-5 \
               --dangerously-skip-permissions \
               --max-turns "$2" \
               --output-format stream-json \

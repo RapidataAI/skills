@@ -9,8 +9,13 @@ When installed, Claude can write working Rapidata code for classification, compa
 In Claude Code:
 
 ```
-/install-plugin https://github.com/RapidataAI/skills
+/plugin marketplace add RapidataAI/skills
+/plugin install rapidata-sdk-plugin@rapidata-sdk-marketplace
 ```
+
+Pull the latest version later with `/plugin marketplace update rapidata-sdk-marketplace`.
+
+Not using Claude Code? `python -m rapidata skill` (SDK ≥ 3.25.3) prints the same `SKILL.md` straight from this repo's `main` branch, and `python -m rapidata skill --install --agent claude|cursor|codex|generic` writes it into your project.
 
 ## What it does
 
@@ -36,7 +41,7 @@ These live in `plugins/rapidata-sdk-plugin/skills/rapidata/`.
 
 ## Version
 
-The plugin version tracks the Rapidata SDK version (currently 3.9.2). A GitHub Actions workflow automatically syncs the version when a new SDK release is published.
+The plugin version tracks the Rapidata SDK version (see `plugin.json`). On every stable SDK release, `sync-sdk-version.yml` has Claude update the three skill files from the SDK diff and bumps the version; if the doc update fails, nothing is committed and the next release retries the whole gap.
 
 ## Repo structure
 

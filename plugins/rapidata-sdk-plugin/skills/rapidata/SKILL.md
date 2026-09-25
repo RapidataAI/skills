@@ -19,9 +19,7 @@ python -c "import rapidata; print(rapidata.__version__)" 2>/dev/null \
 Compare the output to the pinned version above:
 
 - **Installed > pinned** — this skill is **outdated**. The SDK may have new features, renamed methods, or changed signatures that this skill does not document.
-  1. First, try to update the plugin automatically. Claude Code installs plugins from this repo's `main` branch, so either:
-     - Re-run the install command to pull the latest: `/install-plugin https://github.com/RapidataAI/skills`, **or**
-     - Use the plugin manager: `/plugin` → `rapidata-sdk-plugin` → update.
+  1. Suggest updating the skill: in Claude Code, `/plugin marketplace update rapidata-sdk-marketplace` (or `/plugin` → `rapidata-sdk-plugin` → update); outside the plugin, `python -m rapidata skill --install` rewrites the project-local copy.
   2. Tell the user clearly:
      > ⚠️ The Rapidata skill is pinned to v3.25.7 but v{installed} is installed — the skill docs may be out of date. I've suggested updating the plugin; if the update isn't available yet, I'll proceed with the documented API and flag any surprises.
   3. Proceed using the documented API. If you hit an unexpected error (missing attribute, changed signature), stop and tell the user the skill is likely the cause — don't guess at the new API.
@@ -32,9 +30,11 @@ Compare the output to the pinned version above:
 
 ## Installation & Authentication
 
-```python
+```bash
 pip install -U rapidata
+```
 
+```python
 from rapidata import RapidataClient
 client = RapidataClient()  # Credentials resolved: env vars → ~/.config/rapidata/credentials.json → browser login
 
@@ -94,10 +94,11 @@ The file is just one transport. To move the token over any transport (key-value 
 - `client.signals` — run a labeling job on a repeating schedule
 - `client.context` — shorten over-long datapoint contexts against a specific question
 - `client.billing` — read the current billing period's cost and remaining credit, and the outstanding balance owed (organization-level)
+- `client.validation` — validation sets (`create_classification_set`, `create_compare_set`, …, `get_validation_set_by_id`, `find_validation_sets`); only needed for a flow's `validation_set_id` — jobs qualify labelers through audience examples instead
 
-## New API: Job Definitions + Audiences (Recommended)
+## Job Definitions + Audiences
 
-The new API currently exposes **classification**, **comparison**, **locate**, **draw**, **select words**, **free text**, and **ranking** as job definitions. For continuous ranking without full job setup, the Flow API is still recommended.
+Job definitions cover **classification**, **comparison**, **locate**, **draw**, **select words**, **free text**, and **ranking**. For continuous, low-latency collection without full job setup, use Flows.
 
 ### Step-by-step workflow
 
@@ -187,10 +188,9 @@ job_def = client.job.create_compare_job_definition(
 
 ### Ranking
 
-Ranking is available via the **new job definition API** or via **continuous ranking flows** (see below).
+Ranking is available as a job definition or via **continuous ranking flows** (see below).
 
 ```python
-# New job definition API for ranking
 job_def = client.job.create_ranking_job_definition(
     name="Image Quality Ranking",
     instruction="Which image looks better?",
@@ -212,7 +212,7 @@ results = job.get_results()
 Ask labelers to tap on the points in a datapoint that match your instruction. Results are the set of tapped coordinates per datapoint. No `answer_options`, `a_b_names`, `data_type`, `confidence_threshold`, or `quorum_threshold`.
 
 ```python
-from rapidata import Box
+from rapidata import LocateMaxPointsSetting
 
 job_def = client.job.create_locate_job_definition(
     name="Artifact Detection",
@@ -226,18 +226,7 @@ job_def = client.job.create_locate_job_definition(
 )
 ```
 
-For locate qualification examples, pass `truths` as a `list[Box]` (import `Box` from `rapidata`); coordinates are image ratios (0.0–1.0):
-
-```python
-audience.add_locate_example(
-    instruction="Tap on any visual glitches or errors in the image.",
-    datapoint="example_with_artifact.jpg",
-    truths=[Box(x_min=0.44, y_min=0.42, x_max=0.58, y_max=0.63)],
-    context="Optional context",
-    explanation="The artifact is in the highlighted region.",  # Shown to labelers who answer incorrectly
-    settings=[...],  # Optional: match job settings so labelers qualify on the same UI
-)
-```
+Locate qualification examples take `truths` as a `list[Box]` (image ratios 0.0–1.0) — see `add_locate_example` under Custom Audiences.
 
 ### Draw
 
@@ -255,17 +244,7 @@ job_def = client.job.create_draw_job_definition(
 )
 ```
 
-For draw qualification examples, pass `truths` as a `list[Box]` (import `Box` from `rapidata`); coordinates are image ratios (0.0–1.0):
-
-```python
-audience.add_draw_example(
-    instruction="Color in any visual glitches or errors in the image.",
-    datapoint="example_with_artifact.jpg",
-    truths=[Box(x_min=0.44, y_min=0.42, x_max=0.58, y_max=0.63)],
-    explanation="The artifact is within the highlighted region.",  # Shown to labelers who answer incorrectly
-    settings=[...],  # Optional: match job settings so labelers qualify on the same UI
-)
-```
+Draw qualification examples take `truths` as a `list[Box]`; labelers pass when their lines fall within a box — see `add_draw_example` under Custom Audiences.
 
 ### Select Words
 
@@ -282,18 +261,7 @@ job_def = client.job.create_select_words_job_definition(
 )
 ```
 
-For select words qualification examples, pass `truths` as a `list[int]` of 0-based word indices to select:
-
-```python
-audience.add_select_words_example(
-    instruction="Select the words not correctly depicted in the image.",
-    datapoint="image.jpg",
-    sentence="a white cat on a sunny beach [No_mistakes]",
-    truths=[1],  # 0-based word indices; e.g. index 1 = "white" if the cat is black
-    explanation="The cat in the image is black, not white.",  # Shown to labelers who answer incorrectly
-    settings=[...],  # Optional: match job settings so labelers qualify on the same UI
-)
-```
+Select words qualification examples take `truths` as a `list[int]` of 0-based word indices — see `add_select_words_example` under Custom Audiences.
 
 ### Free Text
 
@@ -318,6 +286,8 @@ Create an audience trained on your specific task.
 **Important:** Every qualification example and its associated truth must be manually and thoroughly reviewed by a human before use. If an example has a wrong or ambiguous truth value, the qualification process will filter out good labelers who answer correctly while letting through bad labelers who happen to match the incorrect answer — completely inverting quality control. Always verify that each example has a clear, unambiguous correct answer.
 
 ```python
+from rapidata import Box, NoShuffleSetting, AllowNeitherBothSetting
+
 audience = client.audience.create_audience(
     name="Expert Evaluators",
     # target_accuracy=0.8,   # Optional: fraction of qualification tasks (0-1) a labeler must get right (server default 0.75)
@@ -348,7 +318,7 @@ audience.add_compare_example(
     settings=[AllowNeitherBothSetting()],  # Optional: match job settings so labelers qualify on the same UI
 )
 
-# Add locate examples (requires: from rapidata import Box)
+# Add locate examples — Box coordinates are image ratios (0.0–1.0)
 audience.add_locate_example(
     instruction="Tap on any visual glitches or errors in the image.",
     datapoint="example_with_artifact.jpg",
@@ -358,7 +328,7 @@ audience.add_locate_example(
     settings=[...],  # Optional: match job settings so labelers qualify on the same UI
 )
 
-# Add draw examples (requires: from rapidata import Box)
+# Add draw examples — graded on whether the drawn lines fall within a box
 audience.add_draw_example(
     instruction="Color in any visual glitches or errors in the image.",
     datapoint="example_with_artifact.jpg",
@@ -372,7 +342,8 @@ audience.add_select_words_example(
     instruction="Select the words not correctly depicted in the image.",
     datapoint="image.jpg",
     sentence="a white cat on a sunny beach [No_mistakes]",
-    truths=[1],  # 0-based word indices to select
+    truths=[1],  # 0-based word indices to select; index 1 = "white" if the cat is black
+    # required_precision=1, required_completeness=1,  # defaults: no wrong words, all correct words
     explanation="The cat in the image is black, not white.",  # Shown to labelers who answer incorrectly
     settings=[...],  # Optional: match job settings so labelers qualify on the same UI
 )
@@ -398,7 +369,7 @@ job = audience.assign_job(job_def)
 - `client.audience.find_audiences(name="", amount=10, page=1)` — list your audiences (newest first), optionally filtered by name
 
 **Audience methods:**
-- `audience.start_recruiting()` — begin recruiting/onboarding annotators against the audience's qualification examples. **Required and explicit for custom audiences**: call it once, after adding ≥3 examples and before `assign_job` — adding examples never starts recruiting on its own, and a job assigned before recruiting has started can never receive responses. Calling it more than once is a no-op; a backend failure raises `RapidataError` rather than being swallowed. Returns the audience, so it chains. Not needed for the global/curated pools.
+- `audience.start_recruiting()` — begin recruiting/onboarding annotators against the audience's qualification examples. **Required and explicit for custom audiences**: call it once, after adding ≥3 examples and before `assign_job` — adding examples never starts recruiting on its own, and a job assigned before recruiting has started can never receive responses. Calling it again on the same audience object is a no-op; a backend failure raises `RapidataError` rather than being swallowed. Returns the audience, so it chains. Not needed for the global/curated pools.
 - `audience.get_recruiting_metrics()` — snapshot of the audience's recruiting funnel as a `RecruitingMetrics` (`graduated` = eligible to work now, `distilling` = still qualifying, `dropped`, `inactive`; one bucket per annotator). All zeros before `start_recruiting()` has pulled anyone in, and for curated audiences.
 - `audience.assign_job(job_definition, run_after=None)` — start a job. Never blocks on funds: the job is always created, but if its estimated cost exceeds your account balance a cost warning is logged (with the estimate, your balance, and the shortfall) and the job may pause partway until you top up. A warning is also logged if the audience has no graduated annotators yet. Pass `run_after` (a `RapidataJob`, a job id string, or `None`) to queue this job behind an earlier one: the new job is created immediately in the `Queued` state and only starts once the preceding job **completes or fails**, so a single audience never splits its annotators across two jobs at once. Default `None` starts the job right away. Chain further by pointing each new job at its predecessor.
 
@@ -407,17 +378,19 @@ first = audience.assign_job(job_def)
 second = audience.assign_job(other_job_def, run_after=first)   # or run_after="job_id"
 ```
 - `audience.find_jobs(name="filter", amount=10, page=1)` — find assigned jobs
-- `audience.update_filters([...])` — set the recruitment filters on this audience (audience-supported filters only — see below)
-- `audience.filter([filters])` — derive a filtered subset of this audience without re-onboarding labelers; supports `CountryFilter`, `LanguageFilter`, `DemographicFilter`, `AgeFilter`, `GenderFilter`, and `DeviceFilter`, plus the `AndFilter`/`OrFilter`/`NotFilter` combinators (also via `&` / `|` / `~`); returns a `RapidataFilteredAudience` (exposes `assign_job`, `find_jobs`, `delete` only — no `add_classification_example`, `update_filters`, or nested `.filter()`)
+- `audience.update_filters([...])` — replace the recruitment filters on this audience (audience-supported filters only — see below)
+- `audience.filter([filters])` — derive a filtered slice of this audience's graduated labelers without re-onboarding; multiple filters are ANDed. Returns a `RapidataFilteredAudience` (id prefixed `fau_`) that exposes only `assign_job` and `find_jobs` (plus `id`, `name`, `filters`) — no examples, `update_filters`, `delete`, or nested `.filter()`. Its id (or the object) can be passed as a leaderboard's `audience_id`
 - `audience.update_name("New Name")` — rename
 - `audience.get_examples(amount=10, page=1)` — list qualification examples (returns DataFrame)
 - `audience.delete()` — delete the audience
 
-**Audience-supported filters:** `update_filters(...)` (recruitment filters) accepts `CountryFilter` and `LanguageFilter`; `.filter(...)` (deriving a filtered audience from graduates) additionally accepts `DemographicFilter` (age/gender/occupation), `AgeFilter`, `GenderFilter`, and `DeviceFilter`. Both accept the `AndFilter`/`OrFilter`/`NotFilter` combinators. `UserScoreFilter`, `CampaignFilter`, and `CustomFilter` are **not supported on audiences** and raise `NotImplementedError`.
+**Audience-supported filters:** `CountryFilter`, `LanguageFilter`, `AgeFilter` (`AgeGroup`), `GenderFilter` (`Gender`), and `DeviceFilter` (`DeviceType`), plus the `AndFilter`/`OrFilter`/`NotFilter` combinators (also via `&` / `|` / `~`). `UserScoreFilter`, `CampaignFilter`, and `CustomFilter` are **not supported on audiences** and raise `NotImplementedError`.
+
+**Looking up existing jobs (`client.job`):** `get_job_definition_by_id(id)`, `find_job_definitions(name="", amount=10, page=1)`, `get_job_by_id(id)`, `find_jobs(name="", amount=10, page=1)`.
 
 **Job / Job Definition methods:**
 - `job_def.preview()` — open browser preview of what labelers see
-- `job_def.update_dataset(datapoints=..., data_type=..., contexts=..., media_contexts=..., private_metadata=...)` — replace the datapoints on an existing job definition
+- `job_def.update_dataset(datapoints=..., data_type=..., contexts=..., media_contexts=..., sentences=..., private_metadata=...)` — upload a new dataset as a new revision of the job definition; raises `FailedUploadException` if any datapoint fails
 - `job_def.estimated_cost` / `job.estimated_cost` — a `CostEstimate` (`estimated_cost`, `datapoint_count`, `required_responses`) for running to completion; available on a job definition *before* assigning it. The estimate is priced shortly after creation, so the first read blocks briefly until it's ready (raises `TimeoutError` if still unavailable after a few minutes), then caches. It's an estimate, not the final bill — early stopping can lower the actual cost.
 - `job_def.delete()` — delete a job definition and all its revisions
 - `job.display_progress_bar(refresh_rate=5)` — blocking progress bar
@@ -469,9 +442,7 @@ shortened = client.context.shorten_contexts([
 
 ## Migration from the removed Order API
 
-The order-based API (`client.order`, `RapidataOrderManager`, `RapidataOrder`) was **removed** in v3.21.0 — `client.order` no longer exists, and `from rapidata import RapidataOrder` / `RapidataOrderManager` will fail. The job-definition + audience model is now the only supported path.
-
-To migrate: replace `create_classification_order()` / `create_compare_order()` (and the other `create_*_order()` methods) with the matching `create_*_job_definition()` on `client.job`, replace validation sets with audience qualification examples, and use `audience.assign_job(job_def)` instead of `.run()`. Classification, comparison, locate, draw, select words, free text, and ranking are all available via the job definition API.
+The order-based API (`client.order`, `RapidataOrder`, `RapidataOrderManager`, `create_*_order()`) no longer exists — never generate code that uses it. Replace each `create_*_order()` with the matching `create_*_job_definition()` on `client.job`, validation sets with audience qualification examples, and `order.run()` with `audience.assign_job(job_def)`.
 
 ## Settings
 
@@ -493,7 +464,7 @@ from rapidata import (
 )
 
 settings=[NoShuffleSetting()]                             # Keep answer options in order (use for Likert scales)
-settings=[AllowNeitherBothSetting()]                      # Comparison: allow "Neither"/"Both"
+settings=[AllowNeitherBothSetting()]                      # Comparison: "Unsure" (neither/both) button, shown after delay_ms (default 5000)
 settings=[MarkdownSetting()]                              # Render markdown in text
 settings=[MuteVideoSetting()]                             # Start videos muted
 settings=[FreeTextMinimumCharactersSetting(50)]           # Min text length for free-text tasks (use with caution — see note below)
@@ -501,16 +472,16 @@ settings=[FreeTextMaxCharactersSetting(500)]              # Max text length for 
 settings=[SwapContextInstructionSetting()]                # Swap the positions of context and instruction
 settings=[PlayPercentageVideoSetting(percentage=95)]      # Require labelers to watch N% of video before answering (0-95)
 settings=[OriginalLanguageOnlySetting()]                  # Do not translate the task (text assets are never translated anyway)
-settings=[NoMistakeOptionSetting()]                       # Hide the "mark as mistake" option
-settings=[DisableAutoloopSetting()]                       # Disable automatic looping of media
-settings=[NoInstructionDisplaySetting()]                  # Hide instruction on the task screen
-settings=[KeyboardNumericSetting()]                       # Open numeric keyboard on mobile
+settings=[NoMistakeOptionSetting()]                       # Add a "No mistakes" button so labelers can confirm the media has no errors
+settings=[DisableAutoloopSetting()]                       # Disable automatic looping of videos
+settings=[NoInstructionDisplaySetting()]                  # Hide instruction on the task screen (hides the context instead if combined with SwapContextInstructionSetting)
+settings=[KeyboardNumericSetting()]                       # Free text: open numeric keyboard on mobile
 settings=[LocateMaxPointsSetting(5)]                      # Locate task: max number of points (default 3)
-settings=[LocateMinPointsSetting(1)]                      # Locate task: min number of points
-settings=[ComparePanoramaSetting()]                       # Render comparison media as 360° panorama
-settings=[CompareEquirectangularSetting()]                # Render comparison media as equirectangular VR
+settings=[LocateMinPointsSetting(1)]                      # Locate task: min number of points (default 1)
+settings=[ComparePanoramaSetting()]                       # Render comparison media in a panoramic viewer
+settings=[CompareEquirectangularSetting()]                # Render comparison media as equirectangular 360° view
 settings=[ClassifyEquirectangularSetting()]               # Render classification media as equirectangular 360° view
-settings=[CustomSetting(key="my_flag", value="on")]              # Rapid-level flag (default); use target="campaign" for campaign-level
+settings=[CustomSetting(key="my_flag", value="on")]       # Rapid-level flag (target="rapids", default); target="campaign" for campaign-level
 ```
 
 **Note on `FreeTextMinimumCharactersSetting` / `FreeTextMaxCharactersSetting`:** use these with caution. Free-text responses already pass through a reasonableness check by default, so tightening the bounds is usually unnecessary and will reject otherwise valid answers. Only set them when the question genuinely demands a specific length (e.g. a single word, or a full paragraph).
@@ -521,12 +492,12 @@ settings=[CustomSetting(key="my_flag", value="on")]              # Rapid-level f
 2. **Use `NoShuffleSetting()` for Likert scales** — ordered answer options get shuffled by default
 3. **Custom audiences need ≥3 examples AND an explicit `start_recruiting()`** — recruiting never begins on its own. Add **≥3 qualification examples** (`add_*_example(...)`), then call `audience.start_recruiting()` **once**, before `assign_job`. Skip either step and the audience recruits nobody: the job is still created (with a warning), but it can never receive responses, so `get_results()` / `display_progress_bar()` raise an error saying the audience can never produce responses. Use `client.audience.get_audience_by_id("global")` when you don't need task-specific qualification.
    - **One audience = one task.** A custom audience is qualified for the specific task its examples describe. Reusing it for a different, unrelated task is a misuse — the qualification no longer applies and the quality guarantee is lost. Reuse it only for repeated/scheduled runs of the *same* task; spin up a new audience for a new task.
-4. **25-second time limit, 250-character instructions** — labelers have ~25 seconds per task; keep instructions concise. Instructions (and the `target` of locate/draw tasks) are capped at **250 characters** — a longer one raises `ValueError: instruction is <n> characters; maximum is 250` when the job definition or qualification example is created
+4. **25-second time limit, 250-character instructions** — labelers have ~25 seconds per task; keep instructions concise. Instructions are capped at **250 characters** — a longer one raises `ValueError: instruction is <n> characters; maximum is 250` when the job definition or qualification example is created
 5. **Responses may exceed `responses_per_datapoint`** — concurrent labelers can cause slight overflow
 6. **Two early stopping strategies, mutually exclusive** — `confidence_threshold` (statistical, weighted by labeler trust scores) or `quorum_threshold` (stops when N responses agree); cannot use both at once
 7. **Early stopping only for unambiguous tasks** — both strategies work best when there's a clear correct answer
 8. **Failed uploads abort job-definition creation** — job definitions are created atomically: if more than `failure_tolerance` of the datapoints fail to upload, **no job definition is created** (`e.job_definition` is `None`) and at least one datapoint must always succeed. Fix the failing datapoints and call `e.retry()`, which re-uploads only the failed ones into the *same* dataset and finishes creating the definition; it raises `FailedUploadException` again if failures remain, so it can be looped. Within tolerance, the definition is created and a warning reports how many failed. Inspect failures via `e.failures_by_reason`, `e.failures_by_stage` (grouped by remote-URL ingestion stage — only `internal` is a Rapidata-side fault), and each `FailedUpload`'s `stage` / `http_status`
-9. **Preview link printed on job creation** — when a job definition is created, a dashboard preview link is printed automatically (QR-code previews were removed in v3.21.0); suppress it with `rapidata_config.logging.silent_mode = True`
+9. **Preview link printed on job creation** — creating a job definition prints a dashboard preview link; suppress prints with `rapidata_config.logging.silent_mode = True`
 10. **Context length limit is 400 characters** — the backend rejects contexts longer than 400 characters, so an over-long context is **always** shortened against the task instruction before upload (not optional; a warning reports how many were shortened). Set `rapidata_config.upload.contextShortening = True` to shorten *every* context, or use `client.context.shorten_context()` / `client.context.shorten_contexts()` to shorten manually.
 11. **Jobs can pause for manual review or funds** — `assign_job` always creates the job, but if its estimated cost exceeds your account balance it logs a cost warning and the job may pause until you top up. A job can also enter manual review (`ManualApproval`) or become spend-limited (`SpendLimited`) mid-run; since neither state completes on its own, `get_results()` raises an informative error naming the state instead of blocking — top up or wait for a reviewer, then retry.
 12. **Text assets are NOT translated** — datapoints uploaded with `data_type="text"` are shown to labelers exactly as supplied, in their original language, whatever language the labeler views the task in. Only the surrounding task UI may be translated; `OriginalLanguageOnlySetting` does not change this. If labelers must read the text, target speakers of its language with `LanguageFilter` / `CountryFilter`, or supply the text already in the labelers' language.
@@ -547,7 +518,7 @@ flow = client.flow.create_ranking_flow(
     name="Image Quality Ranking",
     instruction="Which image looks better?",
     max_response_threshold=100,       # Target responses per flow item (default 100)
-    min_response_threshold=50,        # Minimum acceptable responses; item is Incomplete if TTL expires below this
+    min_response_threshold=50,        # Minimum acceptable responses (defaults to max_response_threshold); item is Incomplete if TTL expires below this
     # validation_set_id="...",        # Optional: run a validation set alongside the flow
     # settings=[NoShuffleSetting()],  # Optional: flow-wide settings
 )
@@ -561,19 +532,18 @@ flow_item = flow.create_new_flow_batch(
     context="Generated by Model X",     # A single batch-level context shared across all comparisons
     # context_assets=["reference.jpg"],  # 1–10 image/video/audio paths/URLs shown alongside instruction (flat list)
     time_to_live=300,  # Seconds until expiry (45–3600; ranking flows default to 4 minutes when omitted)
+    # data_type="media", private_metadata=[...], accept_failed_uploads=False,  # also accepted
 )
-# Ranking batches take batch-level context / context_assets only. The old per-datapoint
-# contexts / media_contexts parameters are no longer accepted here — passing them raises
-# TypeError: unexpected keyword argument. Per-datapoint context lives on classify batches.
+# Ranking batches take a batch-level context / context_assets only — no per-datapoint
+# contexts (those are a classify-batch feature).
 
 # Get results (flow items have their own result shape, not RapidataResults)
-results = flow_item.get_results()         # Blocks until complete; ranking items return FlowItemResult(datapoints, total_votes)
+results = flow_item.get_results()         # Blocks until complete; ranking items return FlowItemResult(datapoints={asset key: elo}, total_votes)
 status = flow_item.get_status()           # Non-blocking check (Pending, Running, Completed, Failed, Stopping, Stopped, or Incomplete)
 matrix = flow_item.get_win_loss_matrix()  # Pandas DataFrame (blocks until complete); ranking flow items only — raises ValueError otherwise
 count = flow_item.get_response_count()
 
-# Tune a flow after creation (defined only on RapidataRankingFlow; a classify flow has no
-# update_config attribute at all — accessing it raises AttributeError)
+# Tune a ranking flow after creation (only RapidataRankingFlow has update_config)
 flow.update_config(
     instruction="New instruction",
     starting_elo=1000,
@@ -618,10 +588,9 @@ flow_item = flow.create_new_flow_batch(
     # context_assets=[["ref1.jpg"], ["ref2a.jpg", "ref2b.jpg"]],  # Optional: one list of asset paths/URLs per
     #   datapoint (list[list[str]] — each entry is a list even for a single asset); length must match datapoints
     # time_to_live=300,  # Optional: seconds this batch may run (45–3600); set per batch
+    # data_type="media", private_metadata=[...], accept_failed_uploads=False,  # also accepted
 )
-# Classify batches take per-datapoint contexts / context_assets only. media_contexts was renamed
-# to context_assets (now list[list[str]]), and the batch-level context (singular) is not accepted
-# here — passing it raises TypeError: unexpected keyword argument.
+# Classify batches take per-datapoint contexts / context_assets only — no batch-level context.
 
 # Get results — classify flow items return ClassifyFlowItemResult
 result = flow_item.get_results()      # Blocks until complete
@@ -637,7 +606,7 @@ for key, dp in result.datapoints.items():   # key = source URL, else original fi
 count = flow_item.get_response_count()  # total responses (blocks until complete)
 ```
 
-New result classes (frozen dataclasses, importable from `rapidata`): `ClassifyFlowItemResult` (`datapoints`, `total_responses`) and `ClassifyDatapointResult` (`majority_value`, `distribution`, `response_count`), alongside the existing `FlowItemResult`.
+Result classes (frozen dataclasses, importable from `rapidata`): `ClassifyFlowItemResult` (`datapoints`, `total_responses`) and `ClassifyDatapointResult` (`majority_value`, `distribution`, `response_count`), alongside the existing `FlowItemResult`.
 
 ## Model Ranking Insights (MRI / Benchmarks)
 
@@ -654,7 +623,6 @@ benchmark = client.mri.create_new_benchmark(
     #                           #   list register as one multi-asset, or None for no asset)
     # tags=[...],               # Optional: per-prompt tags — str, Tag(value, category=...), or a mix
     # origins=[...],            # Optional: per-prompt Origin(source) or plain source string
-    # description=None,         # Optional: plain-text credit for the benchmark (max 2000 characters)
 )
 
 # Add prompts later if needed (one or many, matched up by index)
@@ -704,7 +672,6 @@ leaderboard = benchmark.create_leaderboard(
     # skip_initial_run=False,            # Optional: when True, skip the initial run that evaluates the models already
     #                                    #   in the benchmark against each other — you start with no responses/standings.
     #                                    #   Later add_model still compares against the whole field; create-only (not readable back).
-    # benchmarkDescription="...",        # Optional: description for a newly created benchmark (max 2000 chars; ignored if benchmark already exists)
 )
 
 # Evaluate a model (creates participant, uploads media, and submits in one step)
@@ -758,14 +725,6 @@ benchmark.run()         # Submit all unsubmitted participants (status CREATED or
 # as 'identifier' (asset_count/required), e.g. model-0: 'cat' (2/4). Submission still
 # completes and participants are marked SUBMITTED regardless of the warning.
 
-# Faucet — configure a participant to auto-generate samples via Replicate
-participant.set_faucet(
-    model_owner="stability-ai",  # Replicate model owner (e.g. "stability-ai")
-    model_name="sdxl",           # Model name (e.g. "sdxl")
-    model_version=None,          # Optional: pin a specific version hash
-    additional_inputs={"aspect_ratio": "16:9"},  # Optional: extra model inputs (not prompt/num_outputs)
-)
-participant.delete_faucet()      # Remove the faucet from the participant
 participant.disable()             # Exclude from evaluation and standings (reversible)
 participant.enable()              # Re-enable a previously disabled participant
 participant.get_elo()             # Aggregated Elo across all leaderboards (None if not yet computed)
@@ -785,25 +744,14 @@ participant.price_unit            # str | None — "image" | "video_second" | "m
 # confidence, leave it unset and tell the user instead of guessing. Unpriced models are hidden
 # from the cost chart, and only models quoted in the benchmark's majority unit are plotted.
 
-# Sample generation — trigger a batch generation run across participants with faucets
-sample_gen = benchmark.generate_samples(
-    samples_per_prompt=3,         # How many samples per prompt (1–16)
-    participant_ids=None,          # Optional: restrict to specific participant ids
-    prompt_identifiers=None,       # Optional: restrict to specific prompt identifiers
-    tags=None,                     # Optional: restrict to prompts matching any of these tags
-)
-# sample_gen.id                       — generation request id
-# sample_gen.total_count              — total items queued
-# sample_gen.skipped_participant_ids  — participants without a configured faucet
-
-# List participants and their status (p.faucet is None if no faucet is configured)
+# List participants and their status
 for p in benchmark.participants:
-    print(p.name, p.status, p.faucet)
+    print(p.name, p.status, p.price, p.price_unit)
 
 # Prompts — original language and English translation (aligned by index)
 print(benchmark.prompts)          # As originally provided
 print(benchmark.english_prompts)  # Server-side English translations, aligned by index
-print(benchmark.description)      # Optional plain-text credit (None if not set)
+print(benchmark.identifiers, benchmark.prompt_assets)
 
 # Get results
 standings = leaderboard.get_standings()                    # Pandas DataFrame for one leaderboard
@@ -819,7 +767,7 @@ matrix_bm = benchmark.get_win_loss_matrix(                 # Pairwise wins/losse
 # keyword filters, restricting results to votes from matching voters:
 from rapidata import Gender, AgeGroup
 
-overall_men = benchmark.get_overall_standings(
+overall_filtered = benchmark.get_overall_standings(
     country=["US", "GB"],       # ISO-2 codes (observed)
     language=["en"],            # (observed)
     gender=[Gender.FEMALE],     # list[Gender] (estimated/inferred)
@@ -839,25 +787,23 @@ demographics = benchmark.get_demographics(tags=None, leaderboard_ids=None)
 from rapidata import BenchmarkDemographicDimension
 
 breakdown = benchmark.get_standings_breakdown(
-    dimension=BenchmarkDemographicDimension.COUNTRY,   # AgeBucket | Gender | Occupation | Country | Language
+    dimension=BenchmarkDemographicDimension.COUNTRY,   # AGEBUCKET | GENDER | OCCUPATION | COUNTRY | LANGUAGE
 )
 
 # Access the jobs that ran for a leaderboard (one per run, most recent first)
 for job in leaderboard.jobs:
     job_results = job.get_results()
 
-# Update leaderboard config live — all mutation goes through update(); the old property
-# setters (leaderboard.name = ..., .level_of_detail = ..., .min_responses_per_matchup = ...)
-# were removed and now raise AttributeError. Only the arguments you pass are changed;
-# omitted ones keep their stored value, and everything goes out in one PATCH request.
+# Update leaderboard config live — all mutation goes through update() (properties are
+# read-only). Only the arguments you pass are changed; omitted ones keep their stored value.
 leaderboard.update(
     name="Realism (Updated)",                     # non-empty string
     level_of_detail="very high",                  # named level or a positive int budget (e.g. 5000)
     min_responses_per_matchup=7,                  # int >= 3 (bool rejected); takes effect for future evaluations
     vote_aggregation=VoteAggregation.MAJORITY_VOTE,  # re-counts already-collected responses (no re-evaluation)
 )
-# A no-argument update() sends an empty patch. Changing level_of_detail / min_responses_per_matchup
-# only affects future evaluations; already-computed standings are not recomputed.
+# Changing level_of_detail / min_responses_per_matchup only affects future evaluations;
+# already-computed standings are not recomputed.
 
 # Reading back the config (all read-only properties)
 print(leaderboard.level_of_detail)   # A named level only on an exact budget match, otherwise "custom"
@@ -870,7 +816,7 @@ benchmark.view()
 leaderboard.view()
 
 # Find existing benchmarks
-benchmarks = client.mri.find_benchmarks(name="AI Art", amount=10)
+benchmarks = client.mri.find_benchmarks(name="AI Art", amount=10, page=1)
 benchmark = client.mri.get_benchmark_by_id("benchmark_id")
 
 # Patch the benchmark's configuration — only the arguments you pass are changed;
@@ -906,7 +852,8 @@ signal = client.signals.create_signal(
     name="Daily prompt alignment",
     audience=audience,           # also accepts id string
     job_definition=job_def,      # also accepts id string
-    interval_hours=24,
+    interval_hours=24,           # float
+    # description="...",         # Optional
     # revision_number=...,       # Optional: pin a specific job-definition revision
     # is_public=True,            # Optional: let others in your org read the signal
 )
@@ -923,12 +870,12 @@ print(job.get_results())
 # Manage the signal
 signal.pause()
 signal.resume()
-signal.update(name="Hourly prompt alignment", interval_hours=1)
+signal.update(name="Hourly prompt alignment", interval_hours=1)  # also description=
 signal.delete()
 
 # Look signals up later
 signal = client.signals.get_signal_by_id("signal_id")
-signals = client.signals.find_signals(name="alignment")
+signals = client.signals.find_signals(name="alignment", amount=10, page=1)
 ```
 
 **Signal properties:** `id`, `name`, `description`, `audience_id`, `job_definition_id`, `revision_number`, `interval_hours`, `next_run_at`, `last_run_at`, `is_paused`, `is_public`, `created_at`.
@@ -972,5 +919,5 @@ owed = client.billing.get_outstanding_balance()   # -> float
 
 ## Additional Resources
 
-- For complete API reference, all parameters, filters, results format, error handling, flows, and MRI: see [reference.md](reference.md)
-- For full end-to-end code examples and common patterns: see [examples.md](examples.md)
+- For complete API reference, all parameters, filters, results format, error handling, flows, and MRI: see [reference.md](reference.md) (if this file was installed on its own via `python -m rapidata skill --install`, fetch https://raw.githubusercontent.com/RapidataAI/skills/main/plugins/rapidata-sdk-plugin/skills/rapidata/reference.md)
+- For full end-to-end code examples and common patterns: see [examples.md](examples.md) (standalone copy: https://raw.githubusercontent.com/RapidataAI/skills/main/plugins/rapidata-sdk-plugin/skills/rapidata/examples.md)
