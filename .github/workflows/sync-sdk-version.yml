@@ -182,14 +182,15 @@ jobs:
           echo "Change summary generated ($(wc -c < /tmp/sdk-changes.md) bytes)"
 
           # Phase 2 — one pass per skill file, each with its own turn budget, so the
-          # cost scales with the largest file rather than the sum of all three. The
+          # cost scales with the largest file rather than the sum of all of them. The
           # docs grow every release; a single shared budget silently tightens.
           FAILED=()
-          for doc in SKILL.md reference.md examples.md; do
+          for doc in SKILL.md reference.md examples.md flows-for-preference-data.md; do
             case "$doc" in
               SKILL.md)     PURPOSE="core concepts, task types, and common patterns" ;;
               reference.md) PURPOSE="the full API reference — parameters, filters, result formats, error handling" ;;
               examples.md)  PURPOSE="runnable end-to-end code examples for each task type" ;;
+              flows-for-preference-data.md) PURPOSE="guidance on using flows for DPO/RLHF and best-of-N; only its API names and parameters track the SDK" ;;
             esac
 
             # Paths, not contents: the Write tool refuses to overwrite a file that was
@@ -230,6 +231,7 @@ jobs:
             "$SKILL_DIR/SKILL.md"
             "$SKILL_DIR/reference.md"
             "$SKILL_DIR/examples.md"
+            "$SKILL_DIR/flows-for-preference-data.md"
           )
           for changed_file in $(git diff --name-only); do
             is_allowed=false
@@ -259,7 +261,7 @@ jobs:
           # Nothing is committed on failure — not the docs, not the version markers.
           # Leaving the pin at the version the docs really describe is what makes the
           # next run retry this gap instead of skipping it as already done.
-          git checkout -- "$SKILL_DIR/SKILL.md" "$SKILL_DIR/reference.md" "$SKILL_DIR/examples.md"
+          git checkout -- "$SKILL_DIR/SKILL.md" "$SKILL_DIR/reference.md" "$SKILL_DIR/examples.md" "$SKILL_DIR/flows-for-preference-data.md"
           echo "::error::Skill docs were NOT updated for SDK v${NEW_VERSION}; nothing was committed. The docs still describe v${OLD_VERSION} and the pin still says so, so the next release will retry the whole v${OLD_VERSION} -> newer gap. Re-run manually to retry now."
           exit 1
 
@@ -292,6 +294,7 @@ jobs:
           git add plugins/rapidata-sdk-plugin/skills/rapidata/SKILL.md
           git add plugins/rapidata-sdk-plugin/skills/rapidata/reference.md
           git add plugins/rapidata-sdk-plugin/skills/rapidata/examples.md
+          git add plugins/rapidata-sdk-plugin/skills/rapidata/flows-for-preference-data.md
           if git diff --cached --quiet; then
             echo "No changes to commit."
           else

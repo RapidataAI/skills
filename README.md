@@ -31,17 +31,18 @@ The plugin provides Claude with knowledge of the Rapidata SDK, covering:
 
 ## How it works
 
-The plugin is three markdown files that get loaded into Claude's context when relevant:
+The plugin is four markdown files that get loaded into Claude's context when relevant:
 
 - `SKILL.md` — core concepts, task types, and common patterns
 - `reference.md` — full API reference (parameters, filters, result formats, error handling)
 - `examples.md` — runnable code examples for every task type
+- `flows-for-preference-data.md` — using flows for DPO/RLHF and best-of-N, plus comparison-design tips
 
 These live in `plugins/rapidata-sdk-plugin/skills/rapidata/`.
 
 ## Version
 
-The plugin version tracks the Rapidata SDK version (see `plugin.json`). On every stable SDK release, `sync-sdk-version.yml` has Claude update the three skill files from the SDK diff and bumps the version; if the doc update fails, nothing is committed and the next release retries the whole gap.
+The plugin version tracks the Rapidata SDK version (see `plugin.json`). On every stable SDK release, `sync-sdk-version.yml` has Claude update the skill files from the SDK diff and bumps the version; if the doc update fails, nothing is committed and the next release retries the whole gap.
 
 ## Repo structure
 
@@ -57,4 +58,5 @@ plugins/rapidata-sdk-plugin/
     SKILL.md                # main skill definition
     reference.md            # API reference
     examples.md             # code examples
+    flows-for-preference-data.md  # flows for DPO / best-of-N
 ```
