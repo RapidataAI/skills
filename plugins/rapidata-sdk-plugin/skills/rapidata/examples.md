@@ -6,7 +6,7 @@
 from rapidata import RapidataClient
 
 client = RapidataClient()
-audience = client.audience.get_audience_by_id("aud_MU1GZYoESyO")
+audience = client.audience.get_audience_by_id("global")
 
 job_def = client.job.create_classification_job_definition(
     name="Image Classification",
@@ -27,7 +27,7 @@ df = results.to_pandas()
 from rapidata import RapidataClient, NoShuffleSetting
 
 client = RapidataClient()
-audience = client.audience.get_audience_by_id("aud_MU1GZYoESyO")
+audience = client.audience.get_audience_by_id("global")
 
 job_def = client.job.create_classification_job_definition(
     name="Quality Rating",
@@ -73,7 +73,7 @@ results = job.get_results()
 from rapidata import RapidataClient
 
 client = RapidataClient()
-audience = client.audience.get_audience_by_id("aud_MU1GZYoESyO")
+audience = client.audience.get_audience_by_id("global")
 
 job_def = client.job.create_classification_job_definition(
     name="Animal Classification with Quorum",
@@ -95,25 +95,30 @@ results = job.get_results()
 from rapidata import RapidataClient, AllowNeitherBothSetting
 
 client = RapidataClient()
-audience = client.audience.get_audience_by_id("aud_MU1GZYoESyO")
+audience = client.audience.get_audience_by_id("global")
 
 job_def = client.job.create_compare_job_definition(
     name="Text Comparison",
     instruction="Which response is more helpful?",
-    datapoints=[["response_a.txt", "response_b.txt"]],
+    # With data_type="text" each datapoint is the text itself, not a file path.
+    datapoints=[[
+        "Restart the router, then reconnect.",
+        "Have you tried turning it off and on again?",
+    ]],
     data_type="text",
     settings=[AllowNeitherBothSetting()],
 )
+job = audience.assign_job(job_def)
 ```
 
 ## Locate Job
 
 ```python
-from rapidata import RapidataClient, Box
+from rapidata import RapidataClient
 
 client = RapidataClient()
 
-# Simple: use a ready-to-go curated audience
+# Simple: use the ready-to-go global pool
 audience = client.audience.get_audience_by_id("global")
 
 job_def = client.job.create_locate_job_definition(
@@ -151,7 +156,7 @@ for datapoint, truths in EXAMPLES:
         explanation="The artifact is within the highlighted region.",
     )
 
-audience.start_recruiting()  # required — assign_job before this hangs at 0 responses forever
+audience.start_recruiting()  # required — a job assigned before this can never receive responses
 
 job_def = client.job.create_locate_job_definition(
     name="Artifact Detection",
@@ -168,11 +173,11 @@ results = job.get_results()
 ## Draw Job
 
 ```python
-from rapidata import RapidataClient, Box
+from rapidata import RapidataClient
 
 client = RapidataClient()
 
-# Simple: use a ready-to-go curated audience
+# Simple: use the ready-to-go global pool
 audience = client.audience.get_audience_by_id("global")
 
 job_def = client.job.create_draw_job_definition(
@@ -187,42 +192,7 @@ job.display_progress_bar()
 results = job.get_results()
 ```
 
-Custom audience with draw qualification examples:
-
-```python
-from rapidata import RapidataClient, Box
-
-client = RapidataClient()
-
-audience = client.audience.create_audience(name="Artifact Drawing Audience")
-
-EXAMPLES = [
-    ("example1.jpg", [Box(x_min=0.44, y_min=0.42, x_max=0.58, y_max=0.63)]),
-    ("example2.jpg", [Box(x_min=0.07, y_min=0.37, x_max=0.39, y_max=0.71)]),
-    ("example3.jpg", [Box(x_min=0.04, y_min=0.10, x_max=0.31, y_max=0.28)]),
-]
-
-for datapoint, truths in EXAMPLES:
-    audience.add_draw_example(
-        instruction="Color in any visual glitches or errors in the image.",
-        datapoint=datapoint,
-        truths=truths,
-        explanation="The artifact is within the highlighted region.",
-    )
-
-audience.start_recruiting()  # required — assign_job before this hangs at 0 responses forever
-
-job_def = client.job.create_draw_job_definition(
-    name="Artifact Drawing",
-    instruction="Color in any visual glitches or errors in the image.",
-    datapoints=["img1.jpg", "img2.jpg", "img3.jpg"],
-    responses_per_datapoint=35,
-)
-job = audience.assign_job(job_def)
-job.view()
-job.display_progress_bar()
-results = job.get_results()
-```
+For a custom draw audience, follow the locate custom-audience example above with `audience.add_draw_example(...)` (same `truths=list[Box]` shape).
 
 ## Select Words Job
 
@@ -344,7 +314,7 @@ for prompt, datapoint in zip(PROMPTS, DATAPOINTS):
 print(audience.get_examples())
 
 # Start recruiting once the examples are added and reviewed — required and explicit.
-# assign_job before this leaves the audience in Created and the job hangs at 0 responses.
+# A job assigned before this can never receive responses (get_results() raises).
 # A backend failure here raises RapidataError instead of being swallowed.
 audience.start_recruiting()
 
@@ -389,8 +359,8 @@ audience.update_filters([
 ])
 
 # Recruiting is explicit: a custom audience recruits nobody until you add >=3 qualification
-# examples AND then call start_recruiting(). Assign a job before recruiting starts and it
-# silently hangs at 0 responses forever — no error. So: add examples, start_recruiting, THEN assign.
+# examples AND then call start_recruiting(). A job assigned before recruiting starts can never
+# receive responses (get_results() raises). So: add examples, start_recruiting, THEN assign.
 EXAMPLES = [
     ("clear.jpg", ["Excellent"]),
     ("decent.jpg", ["Good"]),
@@ -422,8 +392,8 @@ results = job.get_results()
 # and use the ready-to-go global pool: client.audience.get_audience_by_id("global").
 #
 # update_filters sets recruitment filters: CountryFilter / LanguageFilter (+ And/Or/Not).
-# DemographicFilter / AgeFilter / GenderFilter / DeviceFilter apply to graduates, so
-# use them with audience.filter(...) (see below).
+# AgeFilter / GenderFilter / DeviceFilter narrow the graduates, so use them with
+# audience.filter(...) (see below).
 ```
 
 ## Filtered Audience
@@ -431,19 +401,19 @@ results = job.get_results()
 Derive a filtered subset of a trained audience without re-onboarding labelers:
 
 ```python
-from rapidata import RapidataClient, CountryFilter, LanguageFilter, DemographicFilter, AgeGroup
+from rapidata import RapidataClient, CountryFilter, LanguageFilter, AgeFilter, AgeGroup
 
 client = RapidataClient()
 
 base = client.audience.get_audience_by_id("audience_id")
 
-# .filter() narrows an audience's graduates. It also accepts DemographicFilter
-# (age/gender/occupation), which update_filters does not. For age, use the
-# AgeGroup enum's .value rather than hardcoding the bucket string.
+# .filter() narrows an audience's graduates. Beyond CountryFilter / LanguageFilter it
+# accepts AgeFilter, GenderFilter and DeviceFilter, plus And/Or/Not (& | ~).
+# Multiple filters in the list are ANDed.
 filtered = base.filter([
     CountryFilter(["US"]),
     LanguageFilter(["en"]),
-    DemographicFilter(identifier="age", values=[AgeGroup.BETWEEN_18_29.value]),
+    AgeFilter([AgeGroup.BETWEEN_18_29]),
 ])
 
 job_def = client.job.create_classification_job_definition(
@@ -527,7 +497,6 @@ flow.update_config(instruction="Which image looks better overall?", max_response
 ## Continuous Classify Flow
 
 ```python
-from datetime import timedelta
 from rapidata import RapidataClient, ClassifyFlowItemResult
 
 client = RapidataClient()
@@ -554,7 +523,7 @@ client.flow.preheat()
 batch = flow.create_new_flow_batch(
     datapoints=["gen1.jpg", "gen2.jpg", "gen3.jpg"],
     contexts=["Generated from prompt A", "Generated from prompt B", "Generated from prompt C"],
-    time_to_live=timedelta(minutes=4),  # per-batch only; timedelta or plain int seconds
+    time_to_live=240,  # seconds (45–3600); set per batch only
 )
 
 result: ClassifyFlowItemResult = batch.get_results()  # Blocks until complete
@@ -813,7 +782,7 @@ from rapidata import RapidataClient
 from rapidata.rapidata_client.exceptions import FailedUploadException
 
 client = RapidataClient()
-audience = client.audience.get_audience_by_id("aud_MU1GZYoESyO")
+audience = client.audience.get_audience_by_id("global")
 
 datapoints = ["valid1.jpg", "broken_url", "valid2.jpg", "missing.jpg"]
 
@@ -863,7 +832,7 @@ job is created immediately in the `Queued` state.
 from rapidata import RapidataClient
 
 client = RapidataClient()
-audience = client.audience.get_audience_by_id("aud_MU1GZYoESyO")
+audience = client.audience.get_audience_by_id("global")
 
 first_def = client.job.create_classification_job_definition(
     name="Batch 1",
@@ -906,7 +875,7 @@ job_def.update_dataset(
 
 ## Checking Job Progress Without Blocking
 
-`get_progress()` returns immediately with the current state, unlike `display_progress_bar()` / `wait_for_done()`.
+`get_progress()` returns immediately with the current state, unlike `display_progress_bar()` / `get_results()`.
 
 ```python
 from rapidata import RapidataClient
@@ -922,7 +891,7 @@ if progress.recruiting:
     print(f"{progress.recruiting.graduated} graduated, "
           f"{progress.recruiting.distilling} still distilling")
 
-# get_results() / wait_for_done() raise up front if the job's audience can never
+# get_results() / display_progress_bar() raise up front if the job's audience can never
 # produce responses — nobody graduated AND nobody is being recruited. An audience
 # that is still distilling keeps waiting normally.
 results = job.get_results()
@@ -1132,11 +1101,13 @@ The file is just one transport. To move the token over any transport (key-value 
 from rapidata import RapidataClient
 
 # --- Coordinator: export the current token (refreshes it first if near expiry) ---
+coordinator = RapidataClient(leeway=300)
 token = coordinator.get_token()
 # ... distribute `token` through any transport you like ...
 
 # --- Worker: bootstrap directly from a token object, then renew in place ---
 worker = RapidataClient(token=token)
 # Later, when a fresh token arrives, inject it without reconstructing the client:
+fresh_token = coordinator.get_token()  # in practice received over your transport
 worker.set_token(fresh_token)  # used from the next request on
 ```

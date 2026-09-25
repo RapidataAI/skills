@@ -21,11 +21,9 @@ The new job-definition API exposes **classification**, **comparison**, **locate*
 | `failure_tolerance` | float \| None | Fraction of datapoints (0.0–1.0) allowed to fail upload while the definition is still created; `None` falls back to `rapidata_config.upload.failureTolerance` (default `0.0` = strict). See Error Handling |
 | `private_metadata` | `list[dict[str, str]] \| None` | Hidden metadata per datapoint |
 
-`failure_tolerance` sits **after `settings` and before `private_metadata`** in every `create_*_job_definition` signature — positional callers of `private_metadata` need to be updated.
-
 ### Instruction length
 
-`instruction` is capped at 250 characters (`Workflow.MAX_INSTRUCTION_LENGTH`) for every job definition type and for every audience qualification example. Over-long values raise `ValueError: instruction is <n> characters; maximum is 250` at construction time. For draw and locate jobs the limit applies to the `target`.
+`instruction` is capped at 250 characters (`Workflow.MAX_INSTRUCTION_LENGTH`) for every job definition type and for every audience qualification example. Over-long values raise `ValueError: instruction is <n> characters; maximum is 250` at construction time.
 
 ### Classification-specific
 
@@ -70,7 +68,7 @@ job_definition = client.job.create_draw_job_definition(
 )
 ```
 
-For draw audience examples, use `audience.add_draw_example(instruction, datapoint, truths, explanation=None, settings=None)` where `truths` is a `list[Box]` (import `Box` from `rapidata`); coordinates are image ratios (0.0–1.0).
+For draw audience examples, use `audience.add_draw_example(instruction, datapoint, truths, context=None, media_context=None, explanation=None, settings=None)` where `truths` is a `list[Box]` (import `Box` from `rapidata`); coordinates are image ratios (0.0–1.0).
 
 ### Select Words-specific
 
@@ -90,7 +88,7 @@ job_definition = client.job.create_select_words_job_definition(
 )
 ```
 
-For select words audience examples, use `audience.add_select_words_example(instruction, datapoint, sentence, truths, explanation=None, settings=None)` where `truths` is a `list[int]` of 0-based word indices to select.
+For select words audience examples, use `audience.add_select_words_example(instruction, datapoint, sentence, truths, required_precision=1, required_completeness=1, explanation=None, settings=None)` where `truths` is a `list[int]` of 0-based word indices to select. `required_precision` is the minimum share of selected words that must be correct, `required_completeness` the minimum share of correct words that must be selected (both default `1` = exact match).
 
 ### Free Text-specific
 
@@ -105,7 +103,7 @@ job_definition = client.job.create_free_text_job_definition(
 )
 ```
 
-### Ranking (via `client.job.create_ranking_job_definition` or `client.flow.create_ranking_flow`)
+### Ranking (`client.job.create_ranking_job_definition`)
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -113,13 +111,31 @@ job_definition = client.job.create_free_text_job_definition(
 | `comparison_budget_per_ranking` | int | Total comparisons per ranking group |
 | `responses_per_comparison` | int | Responses per individual comparison (default 1); replaces `responses_per_datapoint` for ranking |
 | `random_comparisons_ratio` | float | Ratio of random vs targeted comparisons (0-1, default 0.5). Ignored for rankings of ≤10 datapoints (see below) |
+| `data_type` | `"media"` \| `"text"` | Default `"media"` |
+| `contexts` / `media_contexts` | list \| None | One entry per ranking group (not per datapoint) |
 
-`responses_per_datapoint`, `answer_options`, `a_b_names`, `confidence_threshold`, and `quorum_threshold` are not available for ranking jobs.
+`responses_per_datapoint`, `answer_options`, `a_b_names`, `confidence_threshold`, `quorum_threshold`, and `private_metadata` are not available for ranking jobs.
 
 **Matchup behavior by ranking size.** How a ranking group is compared depends on how many datapoints it holds:
 
 - **More than 10 datapoints:** matched adaptively (Elo-style) within `comparison_budget_per_ranking`; `random_comparisons_ratio` applies as described above.
 - **10 or fewer datapoints:** every unique pair is compared, with the budget spread evenly across pairs (the total is rounded down to a multiple of the pair count; every pair is compared at least once even if the budget is smaller than the pair count). `random_comparisons_ratio` does **not** apply in this case.
+
+### Finding and updating job definitions and jobs
+
+```python
+job_def = client.job.get_job_definition_by_id("job_definition_id")
+job_defs = client.job.find_job_definitions(name="", amount=10, page=1)
+job = client.job.get_job_by_id("job_id")
+jobs = client.job.find_jobs(name="", amount=10, page=1)
+
+job_def.preview()          # open the labeler preview in the browser
+job_def.update_dataset(    # replace the datapoints
+    datapoints=[...], data_type="media", contexts=None, media_contexts=None,
+    sentences=None,        # select-words definitions only
+    private_metadata=None,
+)
+```
 
 ## Audiences
 
@@ -159,9 +175,9 @@ df = audience.get_examples(amount=10, page=1)                       # inspect ex
 
 # Start recruiting — REQUIRED and EXPLICIT for a custom audience. Recruiting begins only when
 # you call this, once >=3 examples are added and reviewed. Adding examples does NOT start it; an
-# audience left un-recruited stays in `Created` and any job assigned to it silently hangs at 0
-# responses forever (no error — get_results()/display_progress_bar() block indefinitely). Skip
-# all of this and use get_audience_by_id("global") when you need no task-specific qualification.
+# audience left un-recruited stays in `Created` and a job assigned to it can never get responses
+# (get_results()/display_progress_bar() raise — see "Jobs on an audience that can never respond").
+# Skip all of this and use get_audience_by_id("global") when you need no task-specific qualification.
 audience.start_recruiting()                                         # returns self; calling again is a no-op.
                                                                     # A backend failure raises RapidataError — it is
                                                                     # not swallowed, so recruiting never starts silently.
@@ -170,7 +186,8 @@ metrics = audience.get_recruiting_metrics()                         # snapshot o
 # Manage
 audience.update_name("New Name")
 audience.update_filters([CountryFilter(["US"]), LanguageFilter(["en"])])  # audience-supported filters only
-filtered = audience.filter([CountryFilter(["US"])])                 # slim subset, reuses the pool (no re-recruiting)
+filtered = audience.filter([CountryFilter(["US"])])                 # slim subset, reuses the pool (no re-recruiting);
+                                                                    # a RapidataFilteredAudience only has assign_job / find_jobs
 audience.delete()
 
 # Use
@@ -222,7 +239,7 @@ def assign_job(
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `run_after` | `RapidataJob \| str \| None` | Job (or job id) the new job must wait for. `None` (default) starts the job right away — unchanged prior behavior |
+| `run_after` | `RapidataJob \| str \| None` | Job (or job id) the new job must wait for. `None` (default) starts the job right away |
 
 When `run_after` is set, the new job is created immediately in the `Queued` state and
 begins once the preceding job **completes or fails**. A `RapidataJob` contributes its
@@ -242,8 +259,9 @@ Jobs can be chained further by pointing each new job at its predecessor.
 
 ### Warnings on `assign_job`
 
-The job is always created, but two advisory warnings may be logged afterwards:
+The job is always created, but three advisory warnings may be logged afterwards:
 
+- the estimated cost exceeds the account balance — the warning gives the estimate, the balance and the shortfall; the job runs as far as the balance allows (see "Jobs under review or out of funds");
 - the explicit-content-check skip requested via `rapidata_config.upload.checkForExplicitContent = False` was denied by the account (the check still runs);
 - the audience has **no graduated annotators yet** — the warning names the audience, how many are still distilling, and the job, and points at adding examples + `start_recruiting()`, or at using the `"global"` audience. Only `RapidataAudience` emits this; filtered audiences reuse their base pool.
 
@@ -253,7 +271,7 @@ All filters are importable from the top-level `rapidata` package.
 
 ```python
 from rapidata import (
-    CountryFilter, LanguageFilter, UserScoreFilter, DemographicFilter,
+    CountryFilter, LanguageFilter, UserScoreFilter,
     AgeFilter, GenderFilter, DeviceFilter, CampaignFilter, CustomFilter,
     AgeGroup, Gender, DeviceType,
     NotFilter, OrFilter, AndFilter,
@@ -261,7 +279,7 @@ from rapidata import (
 
 # --- Recruitment filters on an audience: CountryFilter and LanguageFilter
 #     (plus the And/Or/Not combinators). UserScoreFilter/CampaignFilter/CustomFilter
-#     raise NotImplementedError here; DemographicFilter belongs on .filter() (below). ---
+#     raise NotImplementedError here; demographic/device targeting belongs on .filter() (below). ---
 audience.update_filters([
     CountryFilter(country_codes=["US", "CA", "GB"]),                  # 2-letter ISO codes (uppercased)
     LanguageFilter(language_codes=["en", "fr"]),                      # 2-letter ISO language codes
@@ -272,13 +290,12 @@ combined = OrFilter([filter1, filter2])
 audience.update_filters([NotFilter(combined)])
 
 # Derive a filtered subset of a trained audience without re-onboarding labelers.
-# Supported filters for .filter(): CountryFilter, LanguageFilter, DemographicFilter,
-# AgeFilter, GenderFilter, DeviceFilter (plus And/Or/Not combinators).
-# For DemographicFilter age, use the AgeGroup enum's .value.
+# Supported filters for .filter(): CountryFilter, LanguageFilter, AgeFilter,
+# GenderFilter, DeviceFilter (plus And/Or/Not combinators). Multiple filters are ANDed.
 filtered = base_audience.filter([
     CountryFilter(["US"]),
     LanguageFilter(["en"]),
-    DemographicFilter(identifier="age", values=[AgeGroup.BETWEEN_18_29.value]),
+    AgeFilter([AgeGroup.BETWEEN_18_29]),
 ])
 job = filtered.assign_job(job_def)  # filtered is a RapidataFilteredAudience
 
@@ -294,8 +311,7 @@ us_or_ca_not_fr = base_audience.filter([
 |--------|-----------|---------------------|
 | `CountryFilter` | `(country_codes: list[str])` | yes |
 | `LanguageFilter` | `(language_codes: list[str])` | yes |
-| `DemographicFilter` | `(identifier: str, values: list[str])` | `.filter()` only |
-| `UserScoreFilter` | `(lower_bound: float = 0.0, upper_bound: float = 1.0, dimension: str \| None = None)` | no (raises `NotImplementedError`) |
+| `UserScoreFilter` | `(lower_bound: float = 0.0, upper_bound: float = 1.0, dimension: str \| None = None)` — bounds 0–1 | no (raises `NotImplementedError`) |
 | `AgeFilter` | `(age_groups: list[AgeGroup])` | `.filter()` only |
 | `GenderFilter` | `(genders: list[Gender])` | `.filter()` only |
 | `DeviceFilter` | `(device_types: list[DeviceType])` | `.filter()` only |
@@ -305,7 +321,7 @@ us_or_ca_not_fr = base_audience.filter([
 | `OrFilter` | `(filters: list[RapidataFilter])` | both |
 | `AndFilter` | `(filters: list[RapidataFilter])` | both |
 
-Note: recruitment filters set with `audience.update_filters(...)` are limited to `CountryFilter`, `LanguageFilter`, and the `And`/`Or`/`Not` combinators. `audience.filter(...)` (deriving a filtered audience from graduates) additionally accepts `DemographicFilter` (age/gender/occupation), `AgeFilter`, `GenderFilter`, and `DeviceFilter`. `UserScoreFilter`, `CampaignFilter`, and `CustomFilter` cannot be attached to audiences at all (they raise `NotImplementedError`).
+Note: use `CountryFilter`, `LanguageFilter`, and the `And`/`Or`/`Not` combinators as recruitment filters (`create_audience(filters=...)` / `audience.update_filters(...)`). Target by age, gender or device with `audience.filter(...)` (deriving a filtered audience from graduates) using `AgeFilter`, `GenderFilter`, and `DeviceFilter`. There is no `DemographicFilter` class. `AgeGroup` members: `UNDER_18`, `BETWEEN_18_29`, `BETWEEN_30_39`, `BETWEEN_40_49`, `BETWEEN_50_64`, `OVER_65`; `Gender`: `MALE`, `FEMALE`, `OTHER`; `DeviceType`: `UNKNOWN`, `PHONE`, `TABLET`. `UserScoreFilter`, `CampaignFilter`, and `CustomFilter` cannot be attached to audiences at all (they raise `NotImplementedError`).
 
 ## Results Format
 
@@ -389,9 +405,10 @@ A labeler's `demographics` may be empty when no demographic data was collected f
 ### Working with Results
 
 ```python
-results = job.get_results()
-df = results.to_pandas()
-json_data = results.to_json()
+results = job.get_results()              # RapidataResults — a dict subclass holding the raw JSON
+df = results.to_pandas()                  # one row per datapoint; compare results get A_/B_ columns
+df = results.to_pandas(split_details=True)  # one row per individual response
+results.to_json("results.json")           # writes the file (default "./results.json"); returns None
 ```
 
 Flow items have a different result shape — see the Flows section.
@@ -447,7 +464,7 @@ A datapoint stops when:
 
 ## Job Progress
 
-`job.get_progress()` returns a frozen `JobProgress` dataclass immediately — it never blocks, unlike `get_results()` / `wait_for_done()`. `JobProgress` is importable from the top-level `rapidata` package.
+`job.get_progress()` returns a frozen `JobProgress` dataclass immediately — it never blocks, unlike `get_results()` / `display_progress_bar()`. `JobProgress` is importable from the top-level `rapidata` package.
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -545,10 +562,10 @@ Most settings only apply to specific task types. If you add a setting that the j
 | Class | Constructor | Effect |
 |-------|-------------|--------|
 | `NoShuffleSetting` | `(value: bool = True)` | Disable shuffling of answer options (Likert scales) |
-| `AllowNeitherBothSetting` | `(value: bool = True)` | Comparison: allow "Neither" / "Both" answers |
+| `AllowNeitherBothSetting` | `(delay_ms: int = 5000)` — ≥ 0 | Comparison: show an "Unsure" button (answers "Neither" / "Both") after `delay_ms` milliseconds |
 | `MarkdownSetting` | `(value: bool = True)` | Render markdown in text |
 | `MuteVideoSetting` | `(value: bool = True)` | Start videos muted |
-| `FreeTextMinimumCharactersSetting` | `(value: int)` — must be ≥ 1 | Min chars for free-text tasks. Use with caution — see note below the table |
+| `FreeTextMinimumCharactersSetting` | `(value: int)` — must be ≥ 1 (prints a warning above 40) | Min chars for free-text tasks. Use with caution — see note below the table |
 | `FreeTextMaxCharactersSetting` | `(value: int = 1024)` — must be ≥ 1 | Max chars for free-text tasks. Use with caution — see note below the table |
 | `SwapContextInstructionSetting` | `(value: bool = True)` | Swap positions of context and instruction |
 | `PlayPercentageVideoSetting` | `(percentage: int = 95)` — 0–95 | Require labelers to watch N% of video |
@@ -558,7 +575,7 @@ Most settings only apply to specific task types. If you add a setting that the j
 | `NoInstructionDisplaySetting` | `(value: bool = True)` | Hide instruction from task screen |
 | `KeyboardNumericSetting` | `(value: bool = True)` | Open numeric keyboard on mobile |
 | `LocateMaxPointsSetting` | `(value: int = 3)` — ≥ 1 | Locate tasks: max points per labeler |
-| `LocateMinPointsSetting` | `(value: int)` | Locate tasks: min points per labeler |
+| `LocateMinPointsSetting` | `(value: int = 1)` — ≥ 1 | Locate tasks: min points per labeler |
 | `ComparePanoramaSetting` | `(value: bool = True)` | Render comparison media as 360° panorama |
 | `CompareEquirectangularSetting` | `(value: bool = True)` | Render comparison media as equirectangular VR |
 | `ClassifyEquirectangularSetting` | `(value: bool = True)` | Render classification media as equirectangular 360° view |
@@ -573,7 +590,7 @@ Most settings only apply to specific task types. If you add a setting that the j
 Job-definition creation is **atomic**: the remote definition is persisted only once the datapoint upload lands within the failure tolerance. If too many datapoints fail, **no job definition is created** and `e.job_definition` is `None` — recover with `e.retry()`, which re-uploads only the failed datapoints into the *same* dataset (never a new one) and finishes creating the definition.
 
 ```python
-from rapidata.rapidata_client.exceptions import FailedUploadException
+from rapidata import FailedUploadException
 
 try:
     job_def = client.job.create_classification_job_definition(
@@ -602,7 +619,7 @@ Tolerance behaviour:
 - Regardless of tolerance, at least one datapoint must upload successfully — a definition over an empty dataset is never created.
 - The failure ratio is always measured against the **original** datapoint count, so it stays meaningful across `retry()` calls.
 
-**Properties:** `failed_uploads` (list[Datapoint] — backward-compatible), `detailed_failures` (list[FailedUpload[Datapoint]]), `failures_by_reason` (dict[str, list[Datapoint]]), `failures_by_stage` (dict[str, list[Datapoint]] — grouped by remote-URL ingestion stage; failures without a stage, e.g. local files, are omitted, so this can be empty), `job_definition`, `dataset`, `machine` (the creation state machine backing `retry()`).
+**Properties:** `failed_uploads` (list[Datapoint]), `detailed_failures` (list[FailedUpload[Datapoint]]), `failures_by_reason` (dict[str, list[Datapoint]]), `failures_by_stage` (dict[str, list[Datapoint]] — grouped by remote-URL ingestion stage; failures without a stage, e.g. local files, are omitted, so this can be empty), `job_definition`, `dataset`, `machine` (the creation state machine backing `retry()`).
 
 **`retry()`** raises `RuntimeError` when the exception did not come from job-definition creation — for those, use `dataset.add_datapoints(exception.failed_uploads)` instead.
 
@@ -643,7 +660,7 @@ Some jobs don't go straight to running. A job can enter manual review (`ManualAp
 
 ### Jobs on an audience that can never respond
 
-`get_results()` and `wait_for_done()` also raise up front when the job's audience can never produce responses — nobody graduated **and** nobody is being recruited (recruiting was never started, or the audience is `Ready` with an empty pool). This catches the case where `start_recruiting()` was forgotten, instead of blocking forever at 0 responses.
+`get_results()` and `display_progress_bar()` also raise up front when the job's audience can never produce responses — nobody graduated **and** nobody is being recruited (recruiting was never started, or the audience is `Ready` with an empty pool). This catches the case where `start_recruiting()` was forgotten, instead of blocking forever at 0 responses.
 
 An audience that is still distilling, an audience in `Pending`/`Recruiting`, a curated audience, or a failed metrics read do **not** raise — those can still deliver responses.
 
@@ -687,8 +704,7 @@ flow_item = flow.create_new_flow_batch(
     time_to_live=300,                 # Seconds until expiry (45–3600; defaults to 4 minutes for ranking flows)
 )
 # context (singular) and context_assets are the shared, batch-level context for all comparisons.
-# The old per-datapoint `contexts` / `media_contexts` are no longer accepted on ranking batches
-#   (passing either raises TypeError: unexpected keyword argument).
+# Ranking batches take no per-datapoint `contexts` (TypeError: unexpected keyword argument).
 
 # Get results — ranking flow items return FlowItemResult, NOT RapidataResults
 result = flow_item.get_results()      # Blocks until completed/failed/stopped/incomplete
@@ -766,10 +782,9 @@ flow_item = flow.create_new_flow_batch(
     accept_failed_uploads=False,                               # If True, proceed even if some uploads fail
     time_to_live=300,                                          # Seconds until expiry (45–3600; defaults to 4 minutes)
 )
-# `media_contexts` was renamed to `context_assets` (now list[list[str]]) — the old bare list[str] form is gone.
-# The batch-level `context` (singular) is not accepted on classify batches (passing it raises TypeError).
+# Classify batches take no batch-level `context` (singular) and no `media_contexts` (TypeError).
 # Validation: `contexts` must be a list of strings matching the datapoint count
-#   (else ValueError("Contexts must be a list of strings.")); `context_assets` must be a list of lists of strings
+#   (else ValueError); `context_assets` must be a list of lists of strings
 #   (else ValueError("Context assets must be a list of lists of strings.")) with matching length
 #   (else ValueError("Number of context assets entries must match number of datapoints.")).
 
@@ -783,9 +798,9 @@ for key, dp in result.datapoints.items():
     print(key, dp.majority_value, dp.distribution, dp.response_count)
 ```
 
-Validation performed before any API call: 2–8 categories (else `ValueError("Categories must contain between 2 and 8 entries.")`), unique category values, `min_responses_per_datapoint >= 1` (else `ValueError("Min responses per datapoint must be at least 1.")`), and `max_responses_per_datapoint >= min_responses_per_datapoint` (else `ValueError("Max responses per datapoint must be at least min responses per datapoint.")`). The flow itself no longer takes a `time_to_live`; time-to-live is set per batch on `create_new_flow_batch`.
+Validation performed before any API call: 2–8 categories (else `ValueError("Categories must contain between 2 and 8 entries.")`), unique category values, `min_responses_per_datapoint >= 1` (else `ValueError("Min responses per datapoint must be at least 1.")`), and `max_responses_per_datapoint >= min_responses_per_datapoint` (else `ValueError("Max responses per datapoint must be at least min responses per datapoint.")`). Time-to-live is set per batch on `create_new_flow_batch`, not on the flow.
 
-`get_win_loss_matrix()` is ranking-only; calling it on a classify flow item raises `ValueError`. `update_config()` exists only on `RapidataRankingFlow` — it is absent on `RapidataClassifyFlow` (`AttributeError`), rather than raising a `ValueError`. `get_response_count()` works on both — for classify flow items it returns `total_responses`.
+`get_win_loss_matrix()` is ranking-only; calling it on a classify flow item raises `ValueError`. `update_config()` exists only on `RapidataRankingFlow` — it is absent on `RapidataClassifyFlow` (`AttributeError`). `get_response_count()` works on both — for classify flow items it returns `total_responses`.
 
 A classify batch becomes `Incomplete` when its `time_to_live` expires with total responses below `min_responses_per_datapoint × number of images` (an average per image); otherwise it is `Completed` — including when every image already reached `max_responses_per_datapoint`. (For ranking flows, `Incomplete` instead occurs when `time_to_live` expires with fewer than `min_response_threshold` responses.)
 
@@ -824,7 +839,6 @@ benchmark = client.mri.create_new_benchmark(
     #                                              #   (several entries in a list = one multi-asset), or None
     # tags=[...],               # Optional: per-prompt tag lists; entries may be str, Tag, or a mix
     # origins=[...],            # Optional: per-prompt Origin or plain source string
-    # description=None,         # Optional: plain-text credit for the benchmark (max 2000 characters)
 )
 
 # Add prompts later if needed (one or many, matched up by index)
@@ -854,14 +868,15 @@ leaderboard = benchmark.create_leaderboard(
     # excluded_tags=["nsfw"],            # Optional: skip prompts carrying any of these tags (always wins)
     # vote_aggregation=VoteAggregation.MAJORITY_VOTE,  # VoteAggregation.MAJORITY_VOTE (default) or ALL_VOTES — how matchup votes are aggregated
     # skip_initial_run=False,            # Optional: when True, skip the initial run that evaluates the models already in the benchmark against each other (start with no responses/standings; later models still compare against the whole field). Create-only — not readable back
-    # benchmarkDescription="...",        # Optional: description for a newly created benchmark (max 2000 chars; ignored if benchmark already exists)
 )
 
-# Evaluate a model (creates participant, uploads media, and submits in one step)
+# Evaluate a model (creates participant, uploads media, and submits in one step).
+# Pair each media item with its prompt via prompts=[...] or identifiers=[...] (one is required).
 benchmark.evaluate_model(
     name="MyModel_v2",
     media=["mountain.png", "city.png"],
     prompts=["A serene mountain landscape", "A futuristic city"],
+    # identifiers=["mountain", "city"],  # alternative to prompts
     data_type="media",   # "media" (default) or "text"
 )
 
@@ -921,14 +936,6 @@ benchmark.update(
     min_assets_per_prompt=4,      # int >= 2 (bool rejected); ValueError otherwise
 )
 
-# Faucet — configure a participant to auto-generate samples via Replicate
-participant.set_faucet(
-    model_owner="stability-ai",  # Replicate model owner (e.g. "stability-ai")
-    model_name="sdxl",           # Model name (e.g. "sdxl")
-    model_version=None,          # Optional: pin a specific version hash
-    additional_inputs={"aspect_ratio": "16:9"},  # Optional: extra model inputs (not prompt/num_outputs)
-)
-participant.delete_faucet()      # Remove the faucet from the participant
 participant.disable()             # Exclude from evaluation and standings (reversible)
 participant.enable()              # Re-enable a previously disabled participant
 participant.get_elo()             # Aggregated Elo across all leaderboards (None if not yet computed)
@@ -942,29 +949,20 @@ participant.clear_price()         # Remove the price
 participant.price                 # float | None — USD per price_unit
 participant.price_unit            # str | None — "image" | "video_second" | "million_tokens"
 
-# Sample generation — trigger a batch generation run across participants with faucets
-sample_gen = benchmark.generate_samples(
-    samples_per_prompt=3,         # How many samples per prompt (1–16)
-    participant_ids=None,          # Optional: restrict to specific participant ids
-    prompt_identifiers=None,       # Optional: restrict to specific prompt identifiers
-    tags=None,                     # Optional: restrict to prompts matching any of these tags
-)
-# sample_gen.id                       — generation request id
-# sample_gen.total_count              — total items queued
-# sample_gen.skipped_participant_ids  — participants without a configured faucet
-
-# List participants and their status (p.faucet is None if no faucet is configured;
-# p.price / p.price_unit are populated for priced models and None for unpriced ones)
+# List participants and their status (p.price / p.price_unit are None for unpriced models)
 for p in benchmark.participants:
-    print(p.name, p.status, p.faucet, p.price, p.price_unit)
+    print(p.id, p.name, p.status, p.price, p.price_unit)
+
+for lb in benchmark.leaderboards:  # list[RapidataLeaderboard]
+    print(lb.id, lb.name)
 
 # Prompts — original language and English translation (aligned by index)
 print(benchmark.prompts)          # As originally provided
 print(benchmark.english_prompts)  # Server-side English translations, aligned by index
-print(benchmark.description)      # Optional plain-text credit (None if not set)
+print(benchmark.identifiers)      # Prompt identifiers, aligned by index
 print(benchmark.structured_tags)  # list[list[Tag]] — tags with categories, aligned by index
 print(benchmark.origins)          # list[Origin | None], aligned by index
-print(benchmark.tags)             # list[list[str]] — values-only view, kept for backwards compatibility
+print(benchmark.tags)             # list[list[str]] — values only (categories dropped)
 print(benchmark.prompt_assets)    # list[list[str] | None], aligned by index — the reference asset(s)
                                   # of each prompt. Each entry is the list of assets for that prompt
                                   # (one element for a single asset, several for a multi-asset), or None
@@ -1079,7 +1077,7 @@ class Origin:
     source: str
 ```
 
-`tags` on `create_new_benchmark`, `add_prompts` and `update_prompt` accepts plain strings, `Tag`s, or a mix — a bare string becomes `Tag(value, category=None)`, so existing `list[list[str]]` callers are unaffected. `origins` accepts an `Origin`, a plain string (mapped to `Origin(source)`), or `None`, one per prompt.
+`tags` on `create_new_benchmark`, `add_prompts` and `update_prompt` accepts plain strings, `Tag`s, or a mix — a bare string becomes `Tag(value, category=None)`. `origins` accepts an `Origin`, a plain string (mapped to `Origin(source)`), or `None`, one per prompt.
 
 ```python
 benchmark = client.mri.create_new_benchmark(
@@ -1137,7 +1135,7 @@ print(leaderboard.response_budget)   # 5000
 
 ### Updating a leaderboard (`leaderboard.update()`)
 
-`update()` is the single entry point for every mutable leaderboard setting. The property setters that used to back this (`leaderboard.name = ...`, `leaderboard.level_of_detail = ...`, `leaderboard.min_responses_per_matchup = ...`) have been **removed** — those properties are now read-only and assigning to them raises `AttributeError`.
+`update()` is the single entry point for every mutable leaderboard setting. The properties (`name`, `level_of_detail`, `min_responses_per_matchup`, …) are read-only — assigning to them raises `AttributeError`.
 
 ```python
 def update(
@@ -1159,9 +1157,9 @@ Only the arguments you pass are changed; anything omitted keeps its stored value
 | `vote_aggregation` | A `VoteAggregation` member, else `ValueError`. Because standings are derived from raw responses on every read, changing this re-counts already-collected responses (no re-evaluation needed) |
 
 ```python
-leaderboard.update(level_of_detail="high")        # was: leaderboard.level_of_detail = "high"
-leaderboard.update(min_responses_per_matchup=5)   # was: leaderboard.min_responses_per_matchup = 5
-leaderboard.update(name="Realism v2")             # was: leaderboard.name = "Realism v2"
+leaderboard.update(level_of_detail="high")
+leaderboard.update(min_responses_per_matchup=5)
+leaderboard.update(name="Realism v2")
 
 # Multiple fields in one request:
 leaderboard.update(
@@ -1287,9 +1285,10 @@ A signal runs a job definition against an audience on a repeating schedule. Each
 | `name` | str | Human-readable name for the signal |
 | `audience` | `RapidataAudience` \| str | Audience (or id string) the spawned jobs will target |
 | `job_definition` | `RapidataJobDefinition` \| str | Job definition (or id string) each firing creates a job from |
-| `interval_hours` | int | Hours between consecutive firings (minimum 1) |
+| `interval_hours` | float | Hours between consecutive firings; must be positive (`ValueError` otherwise) |
+| `description` | str \| None | Optional description |
 | `revision_number` | int \| None | Optional: pin a specific job-definition revision; omit for "latest at fire time" |
-| `is_public` | bool | If `True`, the signal is readable by every authenticated user in your org |
+| `is_public` | bool | Default `False`. If `True`, the signal is readable by every authenticated user in your org |
 
 ```python
 signal = client.signals.create_signal(
@@ -1306,12 +1305,12 @@ signal = client.signals.create_signal(
 
 | Method | Description |
 |--------|-------------|
-| `signal.get_jobs(page_size=10)` | List `RapidataJob` objects created by this signal |
+| `signal.get_jobs(page=1, page_size=20, sort_descending=True)` | List `RapidataJob` objects created by this signal (newest first by default) |
 | `signal.trigger()` | Fire one job immediately; returns right away — job created asynchronously |
-| `signal.wait_for_next_job(timeout=600)` | Block until the next firing creates its job and return it |
-| `signal.pause()` | Pause the scheduler (manual `trigger()` calls still fire) |
-| `signal.resume()` | Resume a paused signal |
-| `signal.update(name=..., interval_hours=...)` | Update the signal's name and/or cadence |
+| `signal.wait_for_next_job(timeout=300, poll_interval=5.0)` | Block until the next firing creates its job and return it |
+| `signal.pause()` | Pause the scheduler (manual `trigger()` calls still fire); returns the signal |
+| `signal.resume()` | Resume a paused signal; returns the signal |
+| `signal.update(name=..., description=..., interval_hours=...)` | Keyword-only; update any of name, description, cadence; returns the signal |
 | `signal.delete()` | Delete the signal and all its runs |
 
 ### Signal manager methods
@@ -1319,7 +1318,7 @@ signal = client.signals.create_signal(
 | Method | Description |
 |--------|-------------|
 | `client.signals.get_signal_by_id("signal_id")` | Look up a signal by id |
-| `client.signals.find_signals(name="filter")` | Find signals by name |
+| `client.signals.find_signals(name="", amount=10, page=1)` | Find signals by name |
 
 ### Signal properties
 
@@ -1330,7 +1329,7 @@ signal = client.signals.create_signal(
 | `audience_id` | The audience each job targets |
 | `job_definition_id` | The job definition each job is created from |
 | `revision_number` | Pinned revision, or `None` for "latest at fire time" |
-| `interval_hours` | How often the signal fires, in hours |
+| `interval_hours` | How often the signal fires, in hours (float) |
 | `next_run_at` / `last_run_at` | Timestamps of the next and most recent firings |
 | `is_paused` | Whether the scheduler is currently skipping this signal |
 | `is_public` | Whether other users can discover and read it |
@@ -1353,7 +1352,7 @@ rapidata_config.upload.maxWorkers = 25        # Concurrent upload threads (warns
 rapidata_config.upload.maxRetries = 3
 rapidata_config.upload.cacheToDisk = True
 rapidata_config.upload.cacheTimeout = 1.0
-rapidata_config.upload.batchSize = 1000       # URLs per batch (100–5000)
+rapidata_config.upload.batchSize = 1000       # URLs per batch (100–5000; below 100 raises ValueError)
 rapidata_config.upload.batchPollInterval = 0.5
 rapidata_config.upload.compression = CompressionConfig(
     enabled=True,
@@ -1403,9 +1402,9 @@ When Rapidata is queried from a large distributed job (e.g. hundreds or thousand
 | `token_file` | str | Path to a shared token file to read the access token from; the SDK re-reads it whenever the in-memory token is within `leeway` of expiry. Also settable via the `RAPIDATA_TOKEN_FILE` env var |
 | `token` | dict | An access-token dict passed directly; the SDK never re-reads it, so inject a fresh one with `client.set_token(...)` (or construct a new client) once the token expires |
 
-### `client.maintain_token_file(path) → thread`
+### `client.maintain_token_file(path, interval=60) → threading.Thread`
 
-Writes the token file at `path` immediately, then keeps rewriting it atomically from a background thread (every 60 seconds by default), creating the directory if needed. Returns a thread-like handle; `.join()` blocks the process forever (drop it if the coordinator also does other work).
+Writes the token file at `path` immediately, then keeps rewriting it atomically from a background daemon thread every `interval` seconds, creating the directory if needed. Returns the thread; `.join()` blocks the process forever (drop it if the coordinator also does other work).
 
 ### `client.get_token() → dict`
 
@@ -1430,6 +1429,24 @@ token = coordinator.get_token()          # refreshes first if near expiry
 worker = RapidataClient(token=token)     # bootstrap a worker from a token object
 worker.set_token(coordinator.get_token())  # renew a running worker later
 ```
+
+## Validation Sets (`client.validation`)
+
+Validation sets hold tasks with known answers used to check labeler quality. Attach one to a flow by passing its id as `validation_set_id` to `create_ranking_flow` / `create_classify_flow`. For job definitions, train an audience with qualification examples instead.
+
+```python
+vs = client.validation.create_classification_set(
+    name="Animal check",
+    instruction="What animal is in this image?",
+    answer_options=["Cat", "Dog"],
+    datapoints=["cat.jpg", "dog.jpg"],
+    truths=[["Cat"], ["Dog"]],           # list of correct answers per datapoint
+    # data_type="media", contexts=None, media_contexts=None, explanations=None, dimensions=[],
+)
+flow = client.flow.create_classify_flow(..., validation_set_id=vs.id)
+```
+
+Other constructors: `create_compare_set(name, instruction, datapoints, truths: list[str], ...)`, `create_select_words_set(name, instruction, truths: list[list[int]], datapoints, sentences, required_precision=1.0, required_completeness=1.0, ...)`, `create_locate_set(...)` / `create_draw_set(...)` (`truths: list[list[Box]]`), `create_timestamp_set(...)` (`truths: list[list[tuple[int, int]]]`). Look up with `client.validation.get_validation_set_by_id(id)` and `client.validation.find_validation_sets(name="", amount=10, page=1)`. A `RapidataValidationSet` has `view()`, `delete()`, `update_dimensions(...)`, `update_should_alert(bool)`, `update_can_be_flagged(bool)`.
 
 ## Context Management
 
