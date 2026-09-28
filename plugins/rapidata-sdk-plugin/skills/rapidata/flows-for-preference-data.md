@@ -19,7 +19,7 @@ Before choosing settings, answer four questions:
 A flow item ends when one of these happens:
 
 - It reaches the flow's `max_response_threshold` (for classify flows, `max_responses_per_datapoint`).
-- Its `time_to_live` (set per batch in `create_new_flow_batch`, 45–3600 s) expires.
+- Its `time_to_live` (set per batch in `create_new_flow_batch`, up to 3600 s, default 240 s; at least 60 s with the default flow settings) expires.
 
 **Most items are expected to end by TTL.** (`min_response_threshold` defaults to the max; set it lower explicitly.) To avoid overflow, Rapidata stops handing out an item somewhere between the min and max thresholds. The item then waits for its TTL without collecting more votes. If it ended below the minimum it is `Incomplete`, but its results are still returned.
 

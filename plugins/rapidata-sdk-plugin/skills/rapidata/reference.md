@@ -673,8 +673,8 @@ from rapidata import RapidataFlow, RapidataRankingFlow, RapidataClassifyFlow
 ```
 
 - `RapidataFlow` — shared base class; holds only the shared listing/deletion behavior (`get_flow_items`, `delete`). It does **not** expose `create_new_flow_batch` or `update_config`.
-- `RapidataRankingFlow` — concrete ranking flow; adds `create_new_flow_batch` (batch-level shared context) and `update_config`.
-- `RapidataClassifyFlow` — concrete classify flow; adds `create_new_flow_batch` (per-datapoint context) but **no** `update_config`.
+- `RapidataRankingFlow` — concrete ranking flow; adds `create_new_flow_batch` (batch-level shared context) and `update_config` (instruction, thresholds, starting Elo, drain duration, serve timeout).
+- `RapidataClassifyFlow` — concrete classify flow; adds `create_new_flow_batch` (per-datapoint context) and `update_config` (drain duration only).
 
 Each flow and `RapidataFlowItem` carries a `flow_type` (`"ranking"` or `"simple"` — classify flows are `"simple"`, since they run on the backend's simple-flow routes), which determines the result shape and which methods are available. `get_flow_by_id` and `find_flows` populate the type from the API and return the matching subclass. Because `create_ranking_flow` → `RapidataRankingFlow`, `create_classify_flow` → `RapidataClassifyFlow`, and `get_flow_by_id` / `find_flows` return `RapidataRankingFlow | RapidataClassifyFlow`, narrow a retrieved flow (e.g. `isinstance(flow, RapidataClassifyFlow)`) before passing kind-specific batch arguments.
 
@@ -691,6 +691,8 @@ flow = client.flow.create_ranking_flow(
     min_response_threshold=50,        # Minimum acceptable responses; item is Incomplete if TTL expires below this
     # validation_set_id="...",        # Optional: validation-set id to interleave validation rapids
     # settings=[...],                 # Optional: flow-wide RapidataSettings
+    # drain_duration=30,              # Optional: drain duration in seconds (sent as drainDurationSeconds)
+    # serve_timeout=60,               # Optional: serve timeout in seconds (sent as serveTimeoutSeconds)
 )
 
 # Add items to rank (RapidataRankingFlow.create_new_flow_batch — batch-level shared context)
@@ -701,7 +703,9 @@ flow_item = flow.create_new_flow_batch(
     data_type="media",                # "media" (default) or "text"
     private_metadata=[...],           # Optional
     accept_failed_uploads=False,      # If True, proceed even if some uploads fail
-    time_to_live=300,                 # Seconds until expiry (45–3600; defaults to 4 minutes for ranking flows)
+    time_to_live=300,                 # Seconds until expiry (up to 3600; defaults to 4 minutes for ranking flows).
+                                      #   Client-side check is 10–3600 (else ValueError("Time to live must be
+                                      #   between 10 seconds and 1 hour.")); with default flow settings the minimum is 60
 )
 # context (singular) and context_assets are the shared, batch-level context for all comparisons.
 # Ranking batches take no per-datapoint `contexts` (TypeError: unexpected keyword argument).
@@ -724,13 +728,15 @@ count = flow_item.get_response_count()    # responses collected (waits for compl
 # Query flow items (returned newest first; defaults: 10 per page, page 1)
 items = flow.get_flow_items(amount=10, page=1)
 
-# Update a flow after creation — RapidataRankingFlow only; the method is absent on
-#   RapidataClassifyFlow (AttributeError if called)
+# Update a ranking flow after creation. Every argument is optional; drain_duration and
+#   serve_timeout (seconds) are sent only when not None, so omitting them keeps the current values
 flow.update_config(
     instruction="New instruction",
     starting_elo=1000,
     min_responses=40,
     max_responses=120,
+    drain_duration=30,
+    serve_timeout=60,
 )
 
 # Preheat for low-latency responses (call ~5 minutes before time-sensitive batches)
@@ -767,6 +773,8 @@ flow = client.flow.create_classify_flow(
                                         #   max_responses_per_datapoint must be >= min_responses_per_datapoint
     # validation_set_id="...",          # Optional: validation-set id
     # settings=[...],                   # Optional: flow-wide RapidataSettings
+    # drain_duration=30,                # Optional: drain duration in seconds (sent as drainDurationSeconds)
+    # serve_timeout=60,                 # Optional: serve timeout in seconds (sent as serveTimeoutSeconds)
 )
 # Time-to-live is controlled per batch only — set it on each create_new_flow_batch call (below).
 
@@ -780,7 +788,8 @@ flow_item = flow.create_new_flow_batch(
     data_type="media",                                         # "media" (default) or "text"
     private_metadata=[...],                                    # Optional
     accept_failed_uploads=False,                               # If True, proceed even if some uploads fail
-    time_to_live=300,                                          # Seconds until expiry (45–3600; defaults to 4 minutes)
+    time_to_live=300,                                          # Seconds until expiry (up to 3600; defaults to 4 minutes;
+                                                               #   client-side check 10–3600; with default flow settings the minimum is 60)
 )
 # Classify batches take no batch-level `context` (singular) and no `media_contexts` (TypeError).
 # Validation: `contexts` must be a list of strings matching the datapoint count
@@ -796,11 +805,15 @@ result = flow_item.get_results()      # Blocks until terminal state
 
 for key, dp in result.datapoints.items():
     print(key, dp.majority_value, dp.distribution, dp.response_count)
+
+# Update the drain duration (seconds) after creation — the only updatable classify setting.
+#   drain_duration=None (the default) is not sent, so the current value stays.
+flow.update_config(drain_duration=30)
 ```
 
 Validation performed before any API call: 2–8 categories (else `ValueError("Categories must contain between 2 and 8 entries.")`), unique category values, `min_responses_per_datapoint >= 1` (else `ValueError("Min responses per datapoint must be at least 1.")`), and `max_responses_per_datapoint >= min_responses_per_datapoint` (else `ValueError("Max responses per datapoint must be at least min responses per datapoint.")`). Time-to-live is set per batch on `create_new_flow_batch`, not on the flow.
 
-`get_win_loss_matrix()` is ranking-only; calling it on a classify flow item raises `ValueError`. `update_config()` exists only on `RapidataRankingFlow` — it is absent on `RapidataClassifyFlow` (`AttributeError`). `get_response_count()` works on both — for classify flow items it returns `total_responses`.
+`get_win_loss_matrix()` is ranking-only; calling it on a classify flow item raises `ValueError`. `update_config()` on `RapidataClassifyFlow` accepts only `drain_duration`; the instruction, categories and response thresholds can't be changed after creation. `get_response_count()` works on both — for classify flow items it returns `total_responses`.
 
 A classify batch becomes `Incomplete` when its `time_to_live` expires with total responses below `min_responses_per_datapoint × number of images` (an average per image); otherwise it is `Completed` — including when every image already reached `max_responses_per_datapoint`. (For ranking flows, `Incomplete` instead occurs when `time_to_live` expires with fewer than `min_response_threshold` responses.)
 
@@ -1388,7 +1401,17 @@ Governs compression of images **and** videos. Applies to single-asset uploads (`
 
 All config fields support environment-variable overrides with the `RAPIDATA_` prefix (e.g., `RAPIDATA_maxWorkers=10`, `RAPIDATA_failureTolerance=0.0`, `RAPIDATA_DISABLE_OTLP=1`).
 
-**Client authentication** is also resolved from environment variables: `RAPIDATA_CLIENT_ID` and `RAPIDATA_CLIENT_SECRET` are used before falling back to `~/.config/rapidata/credentials.json` and browser login. `RAPIDATA_ENVIRONMENT` overrides the API endpoint (default: `rapidata.ai`). `RAPIDATA_TOKEN_FILE` points the client at a shared access-token file (equivalent to `token_file=`). Empty values are treated as unset and fall through to the next resolution layer.
+**Client authentication** is also resolved from environment variables: `RAPIDATA_CLIENT_ID` and `RAPIDATA_CLIENT_SECRET` are used before falling back to `~/.config/rapidata/credentials.json` and browser login. Without saved credentials, `RapidataClient()` blocks on a browser login for up to 5 minutes; the login URL is always printed to stderr (even in silent mode). `RAPIDATA_ENVIRONMENT` overrides the API endpoint (default: `rapidata.ai`). `RAPIDATA_TOKEN_FILE` points the client at a shared access-token file (equivalent to `token_file=`). Empty values are treated as unset and fall through to the next resolution layer.
+
+**Checking and establishing auth from the CLI** (`--environment` defaults to `RAPIDATA_ENVIRONMENT`, else `rapidata.ai`). Both commands check `RAPIDATA_TOKEN_FILE`, then `RAPIDATA_CLIENT_ID` + `RAPIDATA_CLIENT_SECRET`, then the credentials saved for `https://auth.{environment}`:
+
+```bash
+python -m rapidata status [--environment ENV]  # exit 0 "Authenticated for {env} via {source}."; exit 1 if not logged in. Never starts a login
+python -m rapidata login  [--environment ENV]  # browser login; saves credentials (exit 0), or "Login did not complete..." on stderr (exit 1).
+                                               #   Exits 0 immediately if already authenticated; otherwise blocks up to 5 minutes
+```
+
+Run `status` before the first `RapidataClient()`. If it reports not logged in, run `login` in the background (or with a tool timeout above 5 minutes) and show the user the URL it prints. Every later `RapidataClient()` reuses the saved credentials. For headless runs, set `RAPIDATA_CLIENT_ID` / `RAPIDATA_CLIENT_SECRET` instead.
 
 ## Shared Token Files (Distributed Training)
 

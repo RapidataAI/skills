@@ -492,6 +492,8 @@ batch2 = flow.create_new_flow_batch(
 
 # Tune the flow as you learn more
 flow.update_config(instruction="Which image looks better overall?", max_responses=250)
+# drain_duration / serve_timeout (seconds) are also updatable; omitted args keep current values
+flow.update_config(drain_duration=30, serve_timeout=60)
 ```
 
 ## Continuous Classify Flow
@@ -523,7 +525,7 @@ client.flow.preheat()
 batch = flow.create_new_flow_batch(
     datapoints=["gen1.jpg", "gen2.jpg", "gen3.jpg"],
     contexts=["Generated from prompt A", "Generated from prompt B", "Generated from prompt C"],
-    time_to_live=240,  # seconds (45–3600); set per batch only
+    time_to_live=240,  # seconds (up to 3600; min 60 with default flow settings); set per batch only
 )
 
 result: ClassifyFlowItemResult = batch.get_results()  # Blocks until complete
@@ -536,6 +538,10 @@ for asset, outcome in result.datapoints.items():
     # distribution maps EVERY category value defined in the flow (in flow category order)
     # to its response count, with 0 for categories nobody chose, e.g. {"yes": 0, "no": 5}.
     print(asset, outcome.majority_value, outcome.distribution, outcome.response_count)
+
+# Only the drain duration (seconds) can be updated on a classify flow;
+# instruction, categories and thresholds are fixed after creation.
+flow.update_config(drain_duration=30)
 ```
 
 ## Model Benchmark (MRI)

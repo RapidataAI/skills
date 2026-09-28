@@ -9,7 +9,7 @@ Rapidata connects you with distributed human labelers worldwide for fast, high-q
 
 ## Before you start: check the skill is up to date
 
-This skill is pinned to **Rapidata SDK v3.25.8**. Run this check **once at the start of a Rapidata task** (not on every call) to confirm the user's runtime matches the skill:
+This skill is pinned to **Rapidata SDK v3.25.9**. Run this check **once at the start of a Rapidata task** (not on every call) to confirm the user's runtime matches the skill:
 
 ```bash
 python -c "import rapidata; print(rapidata.__version__)" 2>/dev/null \
@@ -21,7 +21,7 @@ Compare the output to the pinned version above:
 - **Installed > pinned** — this skill is **outdated**. The SDK may have new features, renamed methods, or changed signatures that this skill does not document.
   1. Suggest updating the skill: in Claude Code, `/plugin marketplace update rapidata-sdk-marketplace` (or `/plugin` → `rapidata-sdk-plugin` → update); outside the plugin, `python -m rapidata skill --install` rewrites the project-local copy.
   2. Tell the user clearly:
-     > ⚠️ The Rapidata skill is pinned to v3.25.8 but v{installed} is installed — the skill docs may be out of date. I've suggested updating the plugin; if the update isn't available yet, I'll proceed with the documented API and flag any surprises.
+     > ⚠️ The Rapidata skill is pinned to v3.25.9 but v{installed} is installed — the skill docs may be out of date. I've suggested updating the plugin; if the update isn't available yet, I'll proceed with the documented API and flag any surprises.
   3. Proceed using the documented API. If you hit an unexpected error (missing attribute, changed signature), stop and tell the user the skill is likely the cause — don't guess at the new API.
 
 - **Installed < pinned** — the user's runtime is older than this skill. Suggest `pip install -U rapidata` so the runtime matches.
@@ -48,6 +48,17 @@ client = RapidataClient(client_id="...", client_secret="...")
 # RAPIDATA_TOKEN_FILE — read a shared access token from this file (see below)
 # Empty values are treated as unset and fall through to the next resolution layer.
 ```
+
+Without saved credentials, `RapidataClient()` blocks on a browser login for up to 5 minutes. As a coding agent, check auth first from the CLI:
+
+```bash
+python -m rapidata status [--environment ENV]  # exit 0: "Authenticated for {env} via {source}."; exit 1: not logged in. Never starts a login
+python -m rapidata login  [--environment ENV]  # browser login; saves credentials (no-op if already authenticated). Blocks up to 5 minutes
+```
+
+- Both check `RAPIDATA_TOKEN_FILE` → `RAPIDATA_CLIENT_ID` + `RAPIDATA_CLIENT_SECRET` → credentials saved for `https://auth.{environment}`. `--environment` defaults to `RAPIDATA_ENVIRONMENT`, else `rapidata.ai`.
+- Run `python -m rapidata status` before the first `RapidataClient()`. If it reports not logged in, run `python -m rapidata login` in the background (or with a tool timeout above 5 minutes) and show the user the URL it prints — the login URL is always printed to stderr, even in silent mode. After the user logs in once, every later `RapidataClient()` reuses the saved credentials.
+- For headless runs, set `RAPIDATA_CLIENT_ID` and `RAPIDATA_CLIENT_SECRET` instead.
 
 ### Sharing a token across many workers (distributed training)
 
@@ -506,7 +517,7 @@ settings=[CustomSetting(key="my_flag", value="on")]       # Rapid-level flag (ta
 
 Flows continuously collect human responses in small batches without full job/audience setup. There are two kinds: **ranking flows** (Elo-style comparison, below) and **classify flows** (sort each datapoint into a category, further below).
 
-The flow classes are importable from the top level: `from rapidata import RapidataFlow, RapidataRankingFlow, RapidataClassifyFlow`. `RapidataFlow` is a shared base class (only `get_flow_items` and `delete`); the concrete `RapidataRankingFlow` and `RapidataClassifyFlow` subclasses carry the kind-specific `create_new_flow_batch` (and, for ranking, `update_config`). Every flow carries a `flow_type` (`"ranking"` or `"simple"` — classify flows are backed by "simple" flows). `create_ranking_flow` returns a `RapidataRankingFlow` and `create_classify_flow` returns a `RapidataClassifyFlow`, but `get_flow_by_id` and `find_flows` return the union `RapidataRankingFlow | RapidataClassifyFlow` — narrow with `isinstance(flow, RapidataClassifyFlow)` before calling kind-specific batch methods.
+The flow classes are importable from the top level: `from rapidata import RapidataFlow, RapidataRankingFlow, RapidataClassifyFlow`. `RapidataFlow` is a shared base class (only `get_flow_items` and `delete`); the concrete `RapidataRankingFlow` and `RapidataClassifyFlow` subclasses carry the kind-specific `create_new_flow_batch` and `update_config`. Every flow carries a `flow_type` (`"ranking"` or `"simple"` — classify flows are backed by "simple" flows). `create_ranking_flow` returns a `RapidataRankingFlow` and `create_classify_flow` returns a `RapidataClassifyFlow`, but `get_flow_by_id` and `find_flows` return the union `RapidataRankingFlow | RapidataClassifyFlow` — narrow with `isinstance(flow, RapidataClassifyFlow)` before calling kind-specific batch methods.
 
 ### Ranking Flows
 
@@ -521,6 +532,7 @@ flow = client.flow.create_ranking_flow(
     min_response_threshold=50,        # Minimum acceptable responses (defaults to max_response_threshold); item is Incomplete if TTL expires below this
     # validation_set_id="...",        # Optional: run a validation set alongside the flow
     # settings=[NoShuffleSetting()],  # Optional: flow-wide settings
+    # drain_duration=..., serve_timeout=...,  # Optional: seconds (drainDurationSeconds / serveTimeoutSeconds)
 )
 
 # Preheat for low-latency responses (call ~5 minutes before time-sensitive batches)
@@ -531,7 +543,7 @@ flow_item = flow.create_new_flow_batch(
     datapoints=["img1.jpg", "img2.jpg", "img3.jpg"],
     context="Generated by Model X",     # A single batch-level context shared across all comparisons
     # context_assets=["reference.jpg"],  # 1–10 image/video/audio paths/URLs shown alongside instruction (flat list)
-    time_to_live=300,  # Seconds until expiry (45–3600; ranking flows default to 4 minutes when omitted)
+    time_to_live=300,  # Seconds until expiry (10–3600, min 60 with default flow settings; defaults to 4 minutes when omitted)
     # data_type="media", private_metadata=[...], accept_failed_uploads=False,  # also accepted
 )
 # Ranking batches take a batch-level context / context_assets only — no per-datapoint
@@ -543,12 +555,13 @@ status = flow_item.get_status()           # Non-blocking check (Pending, Running
 matrix = flow_item.get_win_loss_matrix()  # Pandas DataFrame (blocks until complete); ranking flow items only — raises ValueError otherwise
 count = flow_item.get_response_count()
 
-# Tune a ranking flow after creation (only RapidataRankingFlow has update_config)
+# Tune a ranking flow after creation (only the parameters you pass are changed)
 flow.update_config(
     instruction="New instruction",
     starting_elo=1000,
     min_responses=40,
     max_responses=120,
+    # drain_duration=..., serve_timeout=...,  # seconds
 )
 
 # Manage flows
@@ -580,8 +593,13 @@ flow = client.flow.create_classify_flow(
     #   Requires max_responses_per_datapoint >= min_responses_per_datapoint.
     # validation_set_id="...",        # Optional
     # settings=[...],                 # Optional: flow-wide settings
+    # drain_duration=..., serve_timeout=...,  # Optional: seconds (drainDurationSeconds / serveTimeoutSeconds)
 )
 # Time-to-live is set per batch only (create_new_flow_batch below), not on the flow.
+
+# After creation only the drain duration can be changed (instruction, categories and
+# response thresholds are fixed); omitting it keeps the current value
+flow.update_config(drain_duration=20)  # seconds
 
 # Add a batch of datapoints to classify
 flow_item = flow.create_new_flow_batch(
@@ -589,7 +607,7 @@ flow_item = flow.create_new_flow_batch(
     contexts=["Text context for img1", "Text context for img2"],  # per-datapoint; exactly one per datapoint
     # context_assets=[["ref1.jpg"], ["ref2a.jpg", "ref2b.jpg"]],  # Optional: one list of asset paths/URLs per
     #   datapoint (list[list[str]] — each entry is a list even for a single asset); length must match datapoints
-    # time_to_live=300,  # Optional: seconds this batch may run (45–3600); set per batch
+    # time_to_live=300,  # Optional: seconds this batch may run (10–3600, min 60 with default flow settings); set per batch
     # data_type="media", private_metadata=[...], accept_failed_uploads=False,  # also accepted
 )
 # Classify batches take per-datapoint contexts / context_assets only — no batch-level context.
