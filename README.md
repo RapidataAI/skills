@@ -15,11 +15,11 @@ In Claude Code:
 
 Pull the latest version later with `/plugin marketplace update rapidata-sdk-marketplace`.
 
-Not using Claude Code? `python -m rapidata skill` (SDK ≥ 3.25.3) prints the same `SKILL.md` straight from this repo's `main` branch, and `python -m rapidata skill --install --agent claude|cursor|codex|generic` writes it into your project.
+Not using Claude Code? `npx skills add RapidataAI/skills` installs the same skill for Cursor, Codex, Copilot, Gemini CLI and others. With the SDK installed, `python -m rapidata skill` prints the full guide directly, and `python -m rapidata skill --install --agent claude|cursor|codex|generic` writes it into your project.
 
 ## What it does
 
-The plugin provides Claude with knowledge of the Rapidata SDK, covering:
+The plugin points Claude at the guide bundled with the SDK, which covers:
 
 - **Classification** — label images or text with categories
 - **Comparison** — show two options to humans, get a preference
@@ -31,18 +31,13 @@ The plugin provides Claude with knowledge of the Rapidata SDK, covering:
 
 ## How it works
 
-The plugin is four markdown files that get loaded into Claude's context when relevant:
+The skill in this repo is a short pointer. It tells the agent to install or upgrade the `rapidata` package, run `python -m rapidata skill`, and read the full guide that ships with the SDK before it writes any code. The guide therefore always matches the SDK version that is actually installed.
 
-- `SKILL.md` — core concepts, task types, and common patterns
-- `reference.md` — full API reference (parameters, filters, result formats, error handling)
-- `examples.md` — runnable code examples for every task type
-- `flows-for-preference-data.md` — using flows for DPO/RLHF and best-of-N, plus comparison-design tips
-
-These live in `plugins/rapidata-sdk-plugin/skills/rapidata/`.
+The full guide (`SKILL.md` plus the `reference`, `examples` and `flows-for-preference-data` companions) lives in the SDK repo at [`src/rapidata/_skill/`](https://github.com/RapidataAI/rapidata-python-sdk/tree/main/src/rapidata/_skill). **Edit it there, not here.**
 
 ## Version
 
-The plugin version tracks the Rapidata SDK version (see `plugin.json`). On every stable SDK release, `sync-sdk-version.yml` has Claude update the skill files from the SDK diff and bumps the version; if the doc update fails, nothing is committed and the next release retries the whole gap.
+`plugin.json`'s version tracks the latest Rapidata SDK release. On every stable SDK release, `sync-sdk-version.yml` bumps it; the skill text itself does not change per release.
 
 ## Repo structure
 
@@ -50,13 +45,10 @@ The plugin version tracks the Rapidata SDK version (see `plugin.json`). On every
 .claude-plugin/
   marketplace.json          # marketplace metadata
 .github/workflows/
-  sync-sdk-version.yml      # auto-sync plugin version to SDK releases
+  sync-sdk-version.yml      # bump plugin version on SDK releases
 plugins/rapidata-sdk-plugin/
   .claude-plugin/
     plugin.json             # plugin name + version
   skills/rapidata/
-    SKILL.md                # main skill definition
-    reference.md            # API reference
-    examples.md             # code examples
-    flows-for-preference-data.md  # flows for DPO / best-of-N
+    SKILL.md                # pointer to `python -m rapidata skill`
 ```

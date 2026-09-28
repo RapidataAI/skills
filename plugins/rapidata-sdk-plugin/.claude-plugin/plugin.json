@@ -1,5 +1,5 @@
 {
   "name": "rapidata-sdk-plugin",
   "version": "3.25.9",
-  "description": "Claude Code plugin for the Rapidata annotation SDK"
+  "description": "Claude Code plugin for the Rapidata annotation SDK: points Claude at `python -m rapidata skill`"
 }

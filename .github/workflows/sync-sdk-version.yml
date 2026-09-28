@@ -1,5 +1,8 @@
 name: Sync Plugin Version with SDK
 
+# The skill text lives in the SDK (src/rapidata/_skill/) and ships with every
+# release; this repo only carries a pointer to `python -m rapidata skill`, so a
+# release bumps plugin.json and nothing else.
 on:
   repository_dispatch:
     types: [sdk-release]
@@ -7,10 +10,6 @@ on:
     inputs:
       version:
         description: "SDK version to sync to (leave empty to fetch from PyPI)"
-        required: false
-        type: string
-      from_version:
-        description: "SDK version to diff from (leave empty to use current plugin version)"
         required: false
         type: string
 
@@ -26,7 +25,6 @@ jobs:
       - name: Determine SDK version
         id: sdk-version
         run: |
-          # Use version from dispatch payload, manual input, or fall back to PyPI
           if [ -n "${{ github.event.client_payload.version }}" ]; then
             SDK_VERSION="${{ github.event.client_payload.version }}"
             echo "Version from SDK release dispatch: $SDK_VERSION"
@@ -39,262 +37,17 @@ jobs:
           fi
           echo "version=$SDK_VERSION" >> "$GITHUB_OUTPUT"
 
-      - name: Get current plugin version
-        id: plugin-version
+      - name: Update plugin version
         run: |
-          PLUGIN_VERSION=$(jq -r '.version' plugins/rapidata-sdk-plugin/.claude-plugin/plugin.json)
-          echo "version=$PLUGIN_VERSION" >> "$GITHUB_OUTPUT"
-          echo "Current plugin version: $PLUGIN_VERSION"
-
-      - name: Determine old version for diff
-        id: old-version
-        run: |
-          SKILL_FILE="plugins/rapidata-sdk-plugin/skills/rapidata/SKILL.md"
-          # The SKILL.md pin — not plugin.json — is what the docs actually claim to
-          # describe, and it only advances on a successful doc update. Gating on
-          # plugin.json let a release whose docs never got written look up to date.
-          DOCUMENTED_VERSION=$(grep -oE 'pinned to \*\*Rapidata SDK v[0-9]+\.[0-9]+\.[0-9]+' "$SKILL_FILE" \
-            | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
-
-          if [ -n "${{ inputs.from_version }}" ]; then
-            OLD_VERSION="${{ inputs.from_version }}"
-            echo "Using manual from_version: $OLD_VERSION"
-          elif [ -n "$DOCUMENTED_VERSION" ]; then
-            OLD_VERSION="$DOCUMENTED_VERSION"
-            echo "Using version documented in SKILL.md: $OLD_VERSION"
-          else
-            OLD_VERSION="${{ steps.plugin-version.outputs.version }}"
-            echo "::warning::No pinned version found in $SKILL_FILE; falling back to plugin.json."
-            echo "Using current plugin version: $OLD_VERSION"
-          fi
-          echo "version=$OLD_VERSION" >> "$GITHUB_OUTPUT"
-
-      - name: Check if update is needed
-        id: should-update
-        run: |
-          OLD_VERSION="${{ steps.old-version.outputs.version }}"
-          NEW_VERSION="${{ steps.sdk-version.outputs.version }}"
-          if [ "$OLD_VERSION" = "$NEW_VERSION" ]; then
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "Old and new versions are the same ($OLD_VERSION). Nothing to do."
-          else
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-            echo "Will update from $OLD_VERSION to $NEW_VERSION"
-          fi
-
-      - name: Clone SDK and generate diff
-        id: sdk-diff
-        if: steps.should-update.outputs.skip != 'true'
-        run: |
-          OLD_VERSION="${{ steps.old-version.outputs.version }}"
-          NEW_VERSION="${{ steps.sdk-version.outputs.version }}"
-
-          git clone --bare --filter=blob:none https://github.com/RapidataAI/rapidata-python-sdk.git /tmp/sdk-repo
-
-          # Resolve tags — handle both "v1.2.3" and "1.2.3" formats
-          resolve_tag() {
-            local ver="$1"
-            local repo="/tmp/sdk-repo"
-            if git -C "$repo" rev-parse "v${ver}" >/dev/null 2>&1; then
-              echo "v${ver}"
-            elif git -C "$repo" rev-parse "${ver}" >/dev/null 2>&1; then
-              echo "${ver}"
-            else
-              echo ""
-            fi
-          }
-
-          OLD_TAG=$(resolve_tag "$OLD_VERSION")
-          NEW_TAG=$(resolve_tag "$NEW_VERSION")
-
-          if [ -z "$OLD_TAG" ] || [ -z "$NEW_TAG" ]; then
-            echo "::error::Could not resolve SDK tags (old='$OLD_TAG' new='$NEW_TAG')."
-            exit 1
-          fi
-
-          echo "Generating diff between $OLD_TAG and $NEW_TAG"
-
-          # api_client and openapi/ are generated from the spec and carry no
-          # user-facing API information — openapi/ alone was ~80% of the diff.
-          EXCLUDES=(':!src/rapidata/api_client' ':!openapi' ':!uv.lock')
-
-          git -C /tmp/sdk-repo diff "$OLD_TAG" "$NEW_TAG" -- "${EXCLUDES[@]}" > /tmp/sdk-diff.txt
-          git -C /tmp/sdk-repo diff --stat "$OLD_TAG" "$NEW_TAG" -- "${EXCLUDES[@]}" > /tmp/sdk-diff-stat.txt
-
-          if [ ! -s /tmp/sdk-diff.txt ]; then
-            echo "::error::SDK diff is empty between $OLD_TAG and $NEW_TAG."
-            exit 1
-          fi
-
-          echo "SDK diff generated ($(wc -c < /tmp/sdk-diff.txt) bytes)"
-          cat /tmp/sdk-diff-stat.txt
-
-      - name: Update skill docs with Claude
-        id: claude-docs
-        if: steps.should-update.outputs.skip != 'true'
-        # Non-fatal only so the next step can explain the failure; that step still fails
-        # the job before anything (docs or version markers) is committed.
-        continue-on-error: true
-        env:
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-        run: |
-          npm install -g @anthropic-ai/claude-code
-
-          SKILL_DIR="plugins/rapidata-sdk-plugin/skills/rapidata"
-
-          run_claude() {
-            claude -p \
-              --model claude-opus-5-5 \
-              --dangerously-skip-permissions \
-              --max-turns "$2" \
-              --output-format stream-json \
-              --verbose < "$1"
-          }
-
-          # Phase 1 — distil the diff once, into a compact summary. Navigating the diff
-          # costs ~20 turns on a multi-release catch-up, so doing it again inside every
-          # per-file pass is what exhausted the budget.
-          cat > /tmp/prompt-summary.txt << 'PROMPT'
-          You are preparing a change summary that another agent will use to update skill documentation for the Rapidata Python SDK.
-
-          Inputs on disk:
-          - /tmp/sdk-diff-stat.txt — per-file summary of the SDK diff; read this first
-          - /tmp/sdk-diff.txt — the full diff (generated API client and OpenAPI spec already excluded)
-
-          Write a single markdown file to /tmp/sdk-changes.md describing every USER-FACING change, grouped by area. For each change give the symbol (class / method / parameter), what changed, and the exact new signature or usage where the diff shows it.
-
-          RULES:
-          - Only report what the diff evidences. Do NOT invent or infer features.
-          - Cover new and changed API methods, parameter changes, renamed or removed classes, new enums, and changed result shapes.
-          - Ignore tests, CI workflows, packaging metadata, and the generated client.
-          - Be specific and complete but do not paste large diff hunks.
-          - Write ONLY /tmp/sdk-changes.md. Do not modify any other file.
-          PROMPT
-
-          if ! run_claude /tmp/prompt-summary.txt 60; then
-            echo "::error::Phase 1 (SDK change summary) failed."
-            exit 1
-          fi
-          if [ ! -s /tmp/sdk-changes.md ]; then
-            echo "::error::Phase 1 produced no change summary at /tmp/sdk-changes.md."
-            exit 1
-          fi
-          echo "Change summary generated ($(wc -c < /tmp/sdk-changes.md) bytes)"
-
-          # Phase 2 — one pass per skill file, each with its own turn budget, so the
-          # cost scales with the largest file rather than the sum of all of them. The
-          # docs grow every release; a single shared budget silently tightens.
-          FAILED=()
-          for doc in SKILL.md reference.md examples.md flows-for-preference-data.md; do
-            case "$doc" in
-              SKILL.md)     PURPOSE="core concepts, task types, and common patterns" ;;
-              reference.md) PURPOSE="the full API reference — parameters, filters, result formats, error handling" ;;
-              examples.md)  PURPOSE="runnable end-to-end code examples for each task type" ;;
-              flows-for-preference-data.md) PURPOSE="guidance on using flows for DPO/RLHF and best-of-N; only its API names and parameters track the SDK" ;;
-            esac
-
-            # Paths, not contents: the Write tool refuses to overwrite a file that was
-            # not Read in-session, so inlining the doc made the first Write fail.
-            cat > /tmp/prompt-$doc.txt << PROMPT
-          You are updating ONE file of the skill documentation for a Claude Code plugin that teaches Claude the Rapidata Python SDK.
-
-          The only file you may modify: $SKILL_DIR/$doc
-          What it is for: $PURPOSE
-
-          The SDK changes to reflect are already distilled in /tmp/sdk-changes.md. If you need more detail on a specific symbol, grep /tmp/sdk-diff.txt (the full SDK diff).
-
-          HOW TO WORK:
-          1. Read /tmp/sdk-changes.md.
-          2. Read $SKILL_DIR/$doc.
-          3. Apply targeted changes with the Edit tool. Use Edit, never Write — do not rewrite the file wholesale, and do not create new files.
-
-          RULES:
-          - Only update what the change summary evidences. Do NOT invent features or capabilities.
-          - Preserve the existing style, structure, and formatting of the file.
-          - Change only what this file is responsible for; if it genuinely needs no changes, make none.
-          - Do NOT add or remove sections unless the changes clearly warrant it.
-          - Do NOT modify any file other than $SKILL_DIR/$doc.
-          PROMPT
-
-            echo "::group::Updating $doc"
-            if run_claude /tmp/prompt-$doc.txt 60; then
-              echo "$doc: done"
-            else
-              echo "::warning::Doc update failed for $doc"
-              FAILED+=("$doc")
-            fi
-            echo "::endgroup::"
-          done
-
-          # Revert any files Claude touched outside the allowed set
-          ALLOWED_FILES=(
-            "$SKILL_DIR/SKILL.md"
-            "$SKILL_DIR/reference.md"
-            "$SKILL_DIR/examples.md"
-            "$SKILL_DIR/flows-for-preference-data.md"
-          )
-          for changed_file in $(git diff --name-only); do
-            is_allowed=false
-            for allowed in "${ALLOWED_FILES[@]}"; do
-              if [ "$changed_file" = "$allowed" ]; then
-                is_allowed=true
-                break
-              fi
-            done
-            if [ "$is_allowed" = false ]; then
-              echo "Reverting unauthorized change: $changed_file"
-              git checkout -- "$changed_file"
-            fi
-          done
-
-          if [ ${#FAILED[@]} -gt 0 ]; then
-            echo "::error::Doc update failed for: ${FAILED[*]}"
-            exit 1
-          fi
-
-      - name: Fail if the doc update did not succeed
-        if: steps.should-update.outputs.skip != 'true' && steps.claude-docs.outcome != 'success'
-        run: |
-          SKILL_DIR="plugins/rapidata-sdk-plugin/skills/rapidata"
-          OLD_VERSION="${{ steps.old-version.outputs.version }}"
-          NEW_VERSION="${{ steps.sdk-version.outputs.version }}"
-          # Nothing is committed on failure — not the docs, not the version markers.
-          # Leaving the pin at the version the docs really describe is what makes the
-          # next run retry this gap instead of skipping it as already done.
-          git checkout -- "$SKILL_DIR/SKILL.md" "$SKILL_DIR/reference.md" "$SKILL_DIR/examples.md" "$SKILL_DIR/flows-for-preference-data.md"
-          echo "::error::Skill docs were NOT updated for SDK v${NEW_VERSION}; nothing was committed. The docs still describe v${OLD_VERSION} and the pin still says so, so the next release will retry the whole v${OLD_VERSION} -> newer gap. Re-run manually to retry now."
-          exit 1
-
-      - name: Update version markers
-        if: steps.should-update.outputs.skip != 'true'
-        run: |
-          NEW_VERSION="${{ steps.sdk-version.outputs.version }}"
-          SKILL_FILE="plugins/rapidata-sdk-plugin/skills/rapidata/SKILL.md"
-
-          jq --arg v "$NEW_VERSION" '.version = $v' \
+          jq --arg v "${{ steps.sdk-version.outputs.version }}" '.version = $v' \
             plugins/rapidata-sdk-plugin/.claude-plugin/plugin.json > tmp.json
           mv tmp.json plugins/rapidata-sdk-plugin/.claude-plugin/plugin.json
 
-          # Also normalises any stale `v<semver>` Claude may have written into the
-          # outdated-skill warning message.
-          sed -i -E \
-            -e "s|(This skill is pinned to \*\*Rapidata SDK v)[0-9]+\.[0-9]+\.[0-9]+(\*\*)|\1${NEW_VERSION}\2|" \
-            -e "s|(skill is pinned to v)[0-9]+\.[0-9]+\.[0-9]+|\1${NEW_VERSION}|" \
-            "$SKILL_FILE"
-
-          echo "Version markers set to $NEW_VERSION"
-          grep -n "Rapidata SDK v" "$SKILL_FILE" || true
-
       - name: Commit and push
-        if: steps.should-update.outputs.skip != 'true'
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
           git add plugins/rapidata-sdk-plugin/.claude-plugin/plugin.json
-          git add plugins/rapidata-sdk-plugin/skills/rapidata/SKILL.md
-          git add plugins/rapidata-sdk-plugin/skills/rapidata/reference.md
-          git add plugins/rapidata-sdk-plugin/skills/rapidata/examples.md
-          git add plugins/rapidata-sdk-plugin/skills/rapidata/flows-for-preference-data.md
           if git diff --cached --quiet; then
             echo "No changes to commit."
           else
