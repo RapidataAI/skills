@@ -10,8 +10,8 @@ The full guide ships inside the `rapidata` package and always matches the instal
 1. Install or upgrade the SDK:
 
    ```bash
-   pip install -U "rapidata>=SDK_MIN_VERSION"
-   uv add "rapidata>=SDK_MIN_VERSION"   # in a uv project; or: uv pip install -U "rapidata>=SDK_MIN_VERSION"
+   pip install -U "rapidata>=3.25.10"
+   uv add "rapidata>=3.25.10"   # in a uv project; or: uv pip install -U "rapidata>=3.25.10"
    ```
 
 2. Print the guide and read ALL of its output before writing any Rapidata code:
