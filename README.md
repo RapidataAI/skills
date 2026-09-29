@@ -1,62 +1,18 @@
-# Rapidata SDK — Claude Code Plugin
+# Rapidata SDK skill
 
-A [Claude Code](https://docs.anthropic.com/en/docs/claude-code) plugin that teaches Claude how to use the [Rapidata Python SDK](https://docs.rapidata.ai) for human annotation tasks.
-
-When installed, Claude can write working Rapidata code for classification, comparison, ranking, benchmarks, and more — without you needing to look up the API docs.
+Points your coding agent at the guide that ships with the [Rapidata Python SDK](https://docs.rapidata.ai). The skill tells the agent to install the `rapidata` package and read `python -m rapidata skill` before writing any Rapidata code, so the guide always matches the installed SDK version.
 
 ## Install
 
-In Claude Code:
+Claude Code:
 
 ```
 /plugin marketplace add RapidataAI/skills
 /plugin install rapidata-sdk-plugin@rapidata-sdk-marketplace
 ```
 
-Pull the latest version later with `/plugin marketplace update rapidata-sdk-marketplace`.
+Any other agent:
 
-Not using Claude Code? `python -m rapidata skill` (SDK ≥ 3.25.3) prints the same `SKILL.md` straight from this repo's `main` branch, and `python -m rapidata skill --install --agent claude|cursor|codex|generic` writes it into your project.
-
-## What it does
-
-The plugin provides Claude with knowledge of the Rapidata SDK, covering:
-
-- **Classification** — label images or text with categories
-- **Comparison** — show two options to humans, get a preference
-- **Ranking** — order multiple items by human judgment
-- **Custom Audiences** — train annotators on your specific task before they start
-- **Flows** — lightweight continuous ranking without full job setup
-- **Benchmarks (MRI)** — compare AI models on human-evaluated leaderboards
-- **Audience Filtering** — target annotators by country, language, age, device, etc.
-
-## How it works
-
-The plugin is four markdown files that get loaded into Claude's context when relevant:
-
-- `SKILL.md` — core concepts, task types, and common patterns
-- `reference.md` — full API reference (parameters, filters, result formats, error handling)
-- `examples.md` — runnable code examples for every task type
-- `flows-for-preference-data.md` — using flows for DPO/RLHF and best-of-N, plus comparison-design tips
-
-These live in `plugins/rapidata-sdk-plugin/skills/rapidata/`.
-
-## Version
-
-The plugin version tracks the Rapidata SDK version (see `plugin.json`). On every stable SDK release, `sync-sdk-version.yml` has Claude update the skill files from the SDK diff and bumps the version; if the doc update fails, nothing is committed and the next release retries the whole gap.
-
-## Repo structure
-
-```
-.claude-plugin/
-  marketplace.json          # marketplace metadata
-.github/workflows/
-  sync-sdk-version.yml      # auto-sync plugin version to SDK releases
-plugins/rapidata-sdk-plugin/
-  .claude-plugin/
-    plugin.json             # plugin name + version
-  skills/rapidata/
-    SKILL.md                # main skill definition
-    reference.md            # API reference
-    examples.md             # code examples
-    flows-for-preference-data.md  # flows for DPO / best-of-N
+```bash
+npx skills add RapidataAI/skills
 ```
